@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Delete Milestone — {{ milestone.name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <h2 class="mb-4">Delete Milestone</h2>
+
+    {% if error %}
+    <div class="alert alert-danger">
+      <strong>Cannot delete:</strong> {{ error }}
+    </div>
+    {% endif %}
+
+    <div class="card border-danger">
+      <div class="card-body">
+        <h5 class="card-title text-danger">Are you sure?</h5>
+        <p>You are about to delete the milestone:</p>
+        <p class="fw-semibold fs-5">{{ milestone.name }}</p>
+        <dl class="row small">
+          <dt class="col-sm-4">Target Date</dt>
+          <dd class="col-sm-8">{{ milestone.target_date|date:"d M Y" }}</dd>
+          <dt class="col-sm-4">Status</dt>
+          <dd class="col-sm-8">{{ milestone.get_status_display }}</dd>
+        </dl>
+        <p class="text-muted small">This action cannot be undone.</p>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+      <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Yes, Delete</button>
+      </form>
+      <a href="{% url 'project_detail' project.pk %}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

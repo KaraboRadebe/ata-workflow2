@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ action }} Line Item{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-9">
+    <h2 class="mb-4">{{ action }} Line Item — {{ sheet.project.name }}</h2>
+    <form method="post">
+      {% csrf_token %}
+      <div class="row g-3 mb-4">
+        <div class="col-md-8">
+          <label class="form-label">Description *</label>
+          {{ form.description }}
+          {% if form.description.errors %}<div class="invalid-feedback d-block">{{ form.description.errors|join:", " }}</div>{% endif %}
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Unit</label>
+          {{ form.unit }}
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Quantity *</label>
+          {{ form.quantity }}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header">Provider 1</div>
+        <div class="card-body row g-2">
+          <div class="col-md-5"><label class="form-label">Name</label>{{ form.provider_1_name }}</div>
+          <div class="col-md-4"><label class="form-label">Amount</label>{{ form.provider_1_amount }}</div>
+          <div class="col-md-3"><label class="form-label">Currency</label>{{ form.provider_1_currency }}</div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header">Provider 2</div>
+        <div class="card-body row g-2">
+          <div class="col-md-5"><label class="form-label">Name</label>{{ form.provider_2_name }}</div>
+          <div class="col-md-4"><label class="form-label">Amount</label>{{ form.provider_2_amount }}</div>
+          <div class="col-md-3"><label class="form-label">Currency</label>{{ form.provider_2_currency }}</div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header">Provider 3</div>
+        <div class="card-body row g-2">
+          <div class="col-md-5"><label class="form-label">Name</label>{{ form.provider_3_name }}</div>
+          <div class="col-md-4"><label class="form-label">Amount</label>{{ form.provider_3_amount }}</div>
+          <div class="col-md-3"><label class="form-label">Currency</label>{{ form.provider_3_currency }}</div>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Selected Provider *</label>
+        {{ form.selected_provider }}
+      </div>
+
+      {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <button type="submit" class="btn btn-primary">{{ action }} Line Item</button>
+      <a href="{% url 'cs_detail' sheet.pk %}" class="btn btn-outline-secondary ms-2">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

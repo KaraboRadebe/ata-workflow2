@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Costing Sheets — ATA Workflow{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="mb-0">Costing Sheets</h2>
+</div>
+{% if sheets %}
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead class="table-light">
+      <tr><th>Project</th><th>Status</th><th>PDR</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for sheet in sheets %}
+      <tr>
+        <td class="fw-semibold">{{ sheet.project.name }}</td>
+        <td>
+          {% if sheet.status == "Draft" %}<span class="badge bg-secondary">Draft</span>
+          {% elif sheet.status == "Submitted" %}<span class="badge bg-warning text-dark">Submitted</span>
+          {% elif sheet.status == "CDR_Approved" %}<span class="badge bg-info text-dark">CDR Approved</span>
+          {% elif sheet.status == "CDR_Rejected" %}<span class="badge bg-danger">CDR Rejected</span>
+          {% elif sheet.status == "Negotiating" %}<span class="badge bg-primary">Negotiating</span>
+          {% elif sheet.status == "Submitted_For_Director" %}<span class="badge bg-warning text-dark">Pending Director</span>
+          {% elif sheet.status == "Director_Approved" %}<span class="badge bg-success">Approved</span>
+          {% elif sheet.status == "Director_Rejected" %}<span class="badge bg-danger">Director Rejected</span>
+          {% endif %}
+        </td>
+        <td>{{ sheet.pdr.get_full_name|default:sheet.pdr.username }}</td>
+        <td>{{ sheet.created_at|date:"d M Y" }}</td>
+        <td><a href="{% url 'cs_detail' sheet.pk %}" class="btn btn-sm btn-outline-primary">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">No costing sheets yet.</p>
+{% endif %}
+{% endblock %}

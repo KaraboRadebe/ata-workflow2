@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}TRF Queue — ATA Workflow{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="mb-0">Training Request Forms</h2>
+  {% if request.user.role == "Sales_User" %}
+  <a href="{% url 'trf_create' %}" class="btn btn-primary">+ New TRF</a>
+  {% endif %}
+</div>
+
+{% if trfs %}
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Project Name</th>
+        <th>Status</th>
+        <th>Training Start</th>
+        <th>Submitted</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for trf in trfs %}
+      <tr>
+        <td class="fw-semibold">{{ trf.project_name }}</td>
+        <td>
+          {% if trf.status == "DRAFT" %}
+            <span class="badge bg-secondary">Draft</span>
+          {% elif trf.status == "PENDING_L2" or trf.status == "PENDING_L3" %}
+            <span class="badge bg-warning text-dark">{{ trf.get_status_display }}</span>
+          {% elif trf.status == "APPROVED" %}
+            <span class="badge bg-success">Approved</span>
+          {% elif trf.status == "REJECTED" %}
+            <span class="badge bg-danger">Rejected</span>
+          {% elif trf.status == "REMEDIATION" %}
+            <span class="badge bg-info text-dark">Remediation</span>
+          {% else %}
+            <span class="badge bg-secondary">{{ trf.get_status_display }}</span>
+          {% endif %}
+        </td>
+        <td>{{ trf.training_start|date:"d M Y" }}</td>
+        <td>
+          {% if trf.submitted_at %}
+            {{ trf.submitted_at|date:"d M Y" }}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'trf_detail' trf.pk %}" class="btn btn-sm btn-outline-primary">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  <p class="fs-5">No TRFs found.</p>
+  {% if request.user.role == "Sales_User" %}
+  <a href="{% url 'trf_create' %}" class="btn btn-primary">Create your first TRF</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

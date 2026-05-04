@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Confirm Status Change — {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <h2 class="mb-4">Confirm Project Completion</h2>
+
+    <div class="alert alert-warning">
+      <strong>Warning:</strong> The following milestones are not yet complete.
+      Marking this project as <strong>Completed</strong> will proceed despite these open items.
+    </div>
+
+    <table class="table table-sm mb-4">
+      <thead class="table-light">
+        <tr><th>Milestone</th><th>Target Date</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for m in incomplete_milestones %}
+        <tr>
+          <td>{{ m.name }}</td>
+          <td>{{ m.target_date|date:"d M Y" }}</td>
+          <td><span class="badge bg-warning text-dark">{{ m.get_status_display }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="d-flex gap-2">
+      <form method="post" action="{% url 'project_status' project.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="new_status" value="{{ new_status }}">
+        <input type="hidden" name="reason" value="{{ reason }}">
+        <input type="hidden" name="confirmed" value="true">
+        <button type="submit" class="btn btn-warning">Proceed Anyway</button>
+      </form>
+      <a href="{% url 'project_detail' project.pk %}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

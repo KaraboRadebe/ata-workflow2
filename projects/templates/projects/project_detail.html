@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="flex justify-between items-start mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-800">{{ project.name }}</h1>
+            <p class="text-gray-500 mt-1">
+                TRF: <a href="{% url 'trf_detail' project.trf.pk %}" class="text-blue-600 hover:underline">{{ project.trf.project_name }}</a>
+                | Sales: {{ project.sales_user.get_full_name|default:project.sales_user.username }}
+            </p>
+        </div>
+        <div>
+            {% if project.status == "Active" %}
+                <span class="px-3 py-1 rounded-full text-sm font-semibold bg-green-100 text-green-800">{{ project.get_status_display }}</span>
+            {% elif project.status == "On_Hold" %}
+                <span class="px-3 py-1 rounded-full text-sm font-semibold bg-yellow-100 text-yellow-800">{{ project.get_status_display }}</span>
+            {% elif project.status == "Completed" %}
+                <span class="px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800">{{ project.get_status_display }}</span>
+            {% elif project.status == "Cancelled" %}
+                <span class="px-3 py-1 rounded-full text-sm font-semibold bg-red-100 text-red-800">{{ project.get_status_display }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Main Content -->
+        <div class="lg:col-span-2">
+            <!-- Milestones -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">Milestones</h2>
+                    {% if is_project_manager %}
+                        <a href="{% url 'milestone_create' project.pk %}" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">+ Add Milestone</a>
+                    {% endif %}
+                </div>
+
+                {% if milestones %}
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead>
+                            <tr class="bg-gray-100">
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Name</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Target Date</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Status</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Expense</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Cost</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in milestones %}
+                            <tr class="border-b border-gray-200 hover:bg-gray-50">
+                                <td class="px-4 py-2">
+                                    <a href="{% url 'milestone_detail' project.pk m.pk %}" class="text-blue-600 hover:underline">{{ m.name }}</a>
+                                </td>
+                                <td class="px-4 py-2 text-gray-600">{{ m.target_date|date:"d M Y" }}</td>
+                                <td class="px-4 py-2">
+                                    {% if m.status == "Pending" %}
+                                        <span class="px-2 py-1 rounded-full text-xs bg-gray-200 text-gray-800">{{ m.get_status_display }}</span>
+                                    {% elif m.status == "In_Progress" %}
+                                        <span class="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">{{ m.get_status_display }}</span>
+                                    {% elif m.status == "Completed" %}
+                                        <span class="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">{{ m.get_status_display }}</span>
+                                    {% elif m.status == "Cancelled" %}
+                                        <span class="px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">{{ m.get_status_display }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-2">
+                                    {% if m.is_trf_expense %}
+                                        <span class="px-2 py-1 rounded-full text-xs bg-purple-100 text-purple-800">TRF Expense</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-2 text-gray-600">
+                                    {% if m.cost_amount %}{{ m.cost_amount }} {{ m.currency }}{% else %}&mdash;{% endif %}
+                                </td>
+                                <td class="px-4 py-2 text-right">
+                                    {% if is_project_manager %}
+                                        <a href="{% url 'milestone_edit' project.pk m.pk %}" class="text-blue-600 hover:text-blue-800 mr-2">Edit</a>
+                                        <a href="{% url 'milestone_delete' project.pk m.pk %}" class="text-red-600 hover:text-red-800">Delete</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                    <p class="text-gray-500">No milestones yet.</p>
+                {% endif %}
+            </div>
+
+            <!-- TRF Expense Summary -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">TRF Expense Summary</h2>
+                <div class="space-y-2">
+                    <div class="flex justify-between py-2 border-b">
+                        <span class="text-gray-600">Original TRF Approved:</span>
+                        <span class="font-semibold">{{ total_trf_approved }}</span>
+                    </div>
+                    <div class="flex justify-between py-2 border-b">
+                        <span class="text-gray-600">Current Total:</span>
+                        <span class="font-semibold">{{ total_current }}</span>
+                    </div>
+                    <div class="flex justify-between py-2">
+                        <span class="text-gray-600">Variance:</span>
+                        <span class="font-semibold {% if variance > 0 %}text-red-600{% else %}text-green-600{% endif %}">{{ variance }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audit Trail -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Audit Trail</h2>
+                {% if audit_events %}
+                    <div class="space-y-3">
+                        {% for event in audit_events %}
+                            <div class="border-l-4 border-gray-300 pl-4 py-2">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <span class="font-semibold">{{ event.actor.get_full_name|default:event.actor.username }}</span>
+                                        {% if "CREATED" in event.action %}
+                                            <span class="ml-2 px-2 py-0.5 rounded text-xs bg-green-100 text-green-800">{{ event.action }}</span>
+                                        {% elif "STATUS" in event.action %}
+                                            <span class="ml-2 px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800">{{ event.action }}</span>
+                                        {% elif "DELETED" in event.action %}
+                                            <span class="ml-2 px-2 py-0.5 rounded text-xs bg-red-100 text-red-800">{{ event.action }}</span>
+                                        {% else %}
+                                            <span class="ml-2 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-800">{{ event.action }}</span>
+                                        {% endif %}
+                                        {% if event.detail.reason %}
+                                            <p class="text-gray-500 text-sm mt-1">{{ event.detail.reason }}</p>
+                                        {% endif %}
+                                    </div>
+                                    <small class="text-gray-400">{{ event.timestamp|date:"d M Y H:i" }}</small>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-gray-500">No audit events yet.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="lg:col-span-1">
+            {% if is_project_manager %}
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">Change Status</h2>
+                <form method="post" action="{% url 'project_status' project.pk %}">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">New Status</label>
+                        {{ status_form.new_status }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Reason (optional)</label>
+                        {{ status_form.reason }}
+                    </div>
+                    {{ status_form.confirmed }}
+                    <button type="submit" class="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Update Status</button>
+                </form>
+            </div>
+            {% endif %}
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">Details</h2>
+                <dl class="space-y-2">
+                    <dt class="text-gray-500 text-sm">TRF Approved</dt>
+                    <dd class="font-medium">{{ project.trf_approved_at|date:"d M Y H:i" }}</dd>
+                    <dt class="text-gray-500 text-sm mt-2">Created</dt>
+                    <dd class="font-medium">{{ project.created_at|date:"d M Y H:i" }}</dd>
+                </dl>
+                <a href="{% url 'project_list' %}" class="block text-center bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 mt-4">Back to Projects</a>
+            </div>
+
+            {# Costing Sheet #}
+            <div class="bg-white rounded-lg shadow-md p-6 mt-4">
+                <h2 class="text-lg font-bold text-gray-800 mb-3">Procurement</h2>
+                {% if project.costing_sheet %}
+                    <a href="{% url 'cs_detail' project.costing_sheet.pk %}" class="block text-center bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mb-2">View Costing Sheet</a>
+                    <p class="text-sm text-gray-500 text-center">Status: {{ project.costing_sheet.status }}</p>
+                {% else %}
+                    {% if is_project_manager %}
+                    <form method="post" action="{% url 'cs_create' project.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">+ Create Costing Sheet</button>
+                    </form>
+                    {% else %}
+                    <p class="text-sm text-gray-500">No costing sheet yet.</p>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    input, select, textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        background-color: white;
+    }
+    input:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+</style>
+{% endblock %}

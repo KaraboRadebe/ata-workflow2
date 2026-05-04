@@ -1,0 +1,456 @@
+import logging
+from datetime import date
+
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
+from .exceptions import (
+    ClientNotificationRequiredError,
+    CostingSheetTransitionError,
+    DuplicateCostingSheetError,
+    DuplicatePOError,
+    POTransitionError,
+)
+from .models import (
+    CostingSheet,
+    CostingSheetLineItem,
+    POLineItem,
+    POYearCounter,
+    ProcurementAuditEvent,
+    PurchaseOrder,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# ProcurementAuditService
+# ---------------------------------------------------------------------------
+class ProcurementAuditService:
+    @staticmethod
+    def record(sheet, actor, action, detail=None):
+        return ProcurementAuditEvent.objects.create(
+            costing_sheet=sheet,
+            actor=actor,
+            action=action,
+            detail=detail or {},
+        )
+
+
+# ---------------------------------------------------------------------------
+# CostingSheetService
+# ---------------------------------------------------------------------------
+class CostingSheetService:
+
+    @staticmethod
+    def create(project, pdr):
+        if project.status != "Active":
+            raise CostingSheetTransitionError(
+                "Costing Sheets can only be created for Active projects."
+            )
+        if CostingSheet.objects.filter(project=project).exists():
+            raise DuplicateCostingSheetError(
+                "A Costing Sheet already exists for this project. "
+                "If it was rejected, please remediate it instead of creating a new one."
+            )
+        if pdr.role != "PDR":
+            raise PermissionError("Only PDR users can create Costing Sheets.")
+
+        sheet = CostingSheet.objects.create(
+            project=project,
+            pdr=pdr,
+            status=CostingSheet.Status.DRAFT,
+        )
+        ProcurementAuditService.record(sheet, pdr, ProcurementAuditEvent.Action.CS_CREATED)
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def submit(sheet, pdr):
+        if sheet.pdr_id != pdr.pk:
+            raise PermissionError("Only the PDR who created this sheet can submit it.")
+        if sheet.status != CostingSheet.Status.DRAFT:
+            raise CostingSheetTransitionError(
+                f"Cannot submit a sheet with status '{sheet.status}'."
+            )
+        if not sheet.line_items.exists():
+            raise ValidationError("At least one line item is required before submission.")
+        missing = sheet.line_items.filter(selected_provider__isnull=True)
+        if missing.exists():
+            raise ValidationError(
+                f"{missing.count()} line item(s) have no selected provider."
+            )
+
+        sheet.status = CostingSheet.Status.SUBMITTED
+        sheet.save(update_fields=["status", "updated_at"])
+        ProcurementAuditService.record(sheet, pdr, ProcurementAuditEvent.Action.CS_SUBMITTED)
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def cdr_approve(sheet, cdr):
+        if cdr.role != "CDR":
+            raise PermissionError("Only CDR users can approve at this stage.")
+        if cdr.pk == sheet.pdr_id:
+            raise PermissionError("The submitting PDR cannot also act as CDR approver.")
+        if sheet.status != CostingSheet.Status.SUBMITTED:
+            raise CostingSheetTransitionError(
+                f"Cannot CDR-approve a sheet with status '{sheet.status}'."
+            )
+
+        # Snapshot original amounts on all line items
+        for li in sheet.line_items.all():
+            provider_amount = getattr(li, f"provider_{li.selected_provider}_amount", None)
+            provider_currency = getattr(li, f"provider_{li.selected_provider}_currency", "")
+            li.original_approved_amount = provider_amount
+            li.original_approved_currency = provider_currency
+            li.save(update_fields=["original_approved_amount", "original_approved_currency"])
+
+        sheet.cdr = cdr
+        sheet.status = CostingSheet.Status.CDR_APPROVED
+        sheet.save(update_fields=["cdr", "status", "updated_at"])
+        ProcurementAuditService.record(sheet, cdr, ProcurementAuditEvent.Action.CS_CDR_APPROVED)
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def cdr_reject(sheet, cdr, reason):
+        if cdr.role != "CDR":
+            raise PermissionError("Only CDR users can reject at this stage.")
+        if cdr.pk == sheet.pdr_id:
+            raise PermissionError("The submitting PDR cannot also act as CDR approver.")
+        if sheet.status != CostingSheet.Status.SUBMITTED:
+            raise CostingSheetTransitionError(
+                f"Cannot CDR-reject a sheet with status '{sheet.status}'."
+            )
+        if not reason or not reason.strip():
+            raise ValidationError("A rejection reason is required.")
+
+        sheet.cdr = cdr
+        sheet.status = CostingSheet.Status.CDR_REJECTED
+        sheet.save(update_fields=["cdr", "status", "updated_at"])
+        ProcurementAuditService.record(
+            sheet, cdr, ProcurementAuditEvent.Action.CS_CDR_REJECTED,
+            {"reason": reason.strip()}
+        )
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def begin_negotiation(sheet, pdr):
+        if sheet.pdr_id != pdr.pk:
+            raise PermissionError("Only the sheet's PDR can begin negotiation.")
+        if sheet.status != CostingSheet.Status.CDR_APPROVED:
+            raise CostingSheetTransitionError(
+                f"Cannot begin negotiation on a sheet with status '{sheet.status}'."
+            )
+        sheet.status = CostingSheet.Status.NEGOTIATING
+        sheet.save(update_fields=["status", "updated_at"])
+        ProcurementAuditService.record(
+            sheet, pdr, ProcurementAuditEvent.Action.CS_NEGOTIATION_STARTED
+        )
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def revise_quote(sheet, line_item, pdr, amount, currency):
+        if sheet.pdr_id != pdr.pk:
+            raise PermissionError("Only the sheet's PDR can revise quotes.")
+        if sheet.status != CostingSheet.Status.NEGOTIATING:
+            raise CostingSheetTransitionError(
+                "Quote revision is only allowed during the Negotiating phase."
+            )
+        old_amount = line_item.negotiated_amount
+        line_item.negotiated_amount = amount
+        line_item.negotiated_currency = currency
+        line_item.save(update_fields=["negotiated_amount", "negotiated_currency"])
+        ProcurementAuditService.record(
+            sheet, pdr, ProcurementAuditEvent.Action.CS_QUOTE_REVISED,
+            {"line_item_id": str(line_item.line_item_id),
+             "old_amount": str(old_amount), "new_amount": str(amount)}
+        )
+        return line_item
+
+    @staticmethod
+    @transaction.atomic
+    def submit_for_director(sheet, pdr):
+        if sheet.pdr_id != pdr.pk:
+            raise PermissionError("Only the sheet's PDR can submit for Director approval.")
+        if sheet.status != CostingSheet.Status.NEGOTIATING:
+            raise CostingSheetTransitionError(
+                f"Cannot submit for Director from status '{sheet.status}'."
+            )
+        sheet.status = CostingSheet.Status.SUBMITTED_FOR_DIRECTOR
+        sheet.save(update_fields=["status", "updated_at"])
+        ProcurementAuditService.record(
+            sheet, pdr, ProcurementAuditEvent.Action.CS_SUBMITTED_DIRECTOR
+        )
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def director_approve(sheet, director, justification=""):
+        if not is_director_manager_role(director):
+            raise PermissionError("Only Director/Manager users can approve at this stage.")
+        if sheet.cdr_id and sheet.cdr_id == director.pk:
+            raise PermissionError(
+                "The CDR approver cannot also act as Director approver on the same sheet."
+            )
+        if sheet.status != CostingSheet.Status.SUBMITTED_FOR_DIRECTOR:
+            raise CostingSheetTransitionError(
+                f"Cannot Director-approve a sheet with status '{sheet.status}'."
+            )
+        # Justification required if any negotiated amount exceeds original
+        needs_justification = sheet.line_items.filter(
+            negotiated_amount__isnull=False,
+            original_approved_amount__isnull=False,
+        ).extra(where=["negotiated_amount > original_approved_amount"]).exists()
+
+        if needs_justification and not (justification and justification.strip()):
+            raise ValidationError(
+                "A justification is required when negotiated amounts exceed the CDR-approved amounts."
+            )
+
+        sheet.director = director
+        sheet.status = CostingSheet.Status.DIRECTOR_APPROVED
+        sheet.save(update_fields=["director", "status", "updated_at"])
+        ProcurementAuditService.record(
+            sheet, director, ProcurementAuditEvent.Action.CS_DIRECTOR_APPROVED,
+            {"justification": justification}
+        )
+        # Link milestones
+        CostingSheetService._link_milestones(sheet)
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def director_reject(sheet, director, reason):
+        if not is_director_manager_role(director):
+            raise PermissionError("Only Director/Manager users can reject at this stage.")
+        if sheet.cdr_id and sheet.cdr_id == director.pk:
+            raise PermissionError(
+                "The CDR approver cannot also act as Director approver on the same sheet."
+            )
+        if sheet.status != CostingSheet.Status.SUBMITTED_FOR_DIRECTOR:
+            raise CostingSheetTransitionError(
+                f"Cannot Director-reject a sheet with status '{sheet.status}'."
+            )
+        if not reason or not reason.strip():
+            raise ValidationError("A rejection reason is required.")
+
+        sheet.director = director
+        sheet.status = CostingSheet.Status.DIRECTOR_REJECTED
+        sheet.save(update_fields=["director", "status", "updated_at"])
+        ProcurementAuditService.record(
+            sheet, director, ProcurementAuditEvent.Action.CS_DIRECTOR_REJECTED,
+            {"reason": reason.strip()}
+        )
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def remediate(sheet, pdr):
+        """CDR_Rejected → Draft."""
+        if sheet.pdr_id != pdr.pk:
+            raise PermissionError("Only the sheet's PDR can remediate.")
+        if sheet.status != CostingSheet.Status.CDR_REJECTED:
+            raise CostingSheetTransitionError(
+                f"Cannot remediate from status '{sheet.status}'. Expected CDR_Rejected."
+            )
+        sheet.status = CostingSheet.Status.DRAFT
+        sheet.save(update_fields=["status", "updated_at"])
+        ProcurementAuditService.record(sheet, pdr, ProcurementAuditEvent.Action.CS_REMEDIATED)
+        return sheet
+
+    @staticmethod
+    @transaction.atomic
+    def remediate_after_director(sheet, pdr):
+        """Director_Rejected → Negotiating (PDR retains negotiated amounts)."""
+        if sheet.pdr_id != pdr.pk:
+            raise PermissionError("Only the sheet's PDR can remediate.")
+        if sheet.status != CostingSheet.Status.DIRECTOR_REJECTED:
+            raise CostingSheetTransitionError(
+                f"Cannot remediate from status '{sheet.status}'. Expected Director_Rejected."
+            )
+        sheet.status = CostingSheet.Status.NEGOTIATING
+        sheet.save(update_fields=["status", "updated_at"])
+        ProcurementAuditService.record(sheet, pdr, ProcurementAuditEvent.Action.CS_REMEDIATED)
+        return sheet
+
+    @staticmethod
+    def _link_milestones(sheet):
+        """Write costing sheet data back to Phase 2 Milestones on Director approval."""
+        from projects.models import Milestone
+        for li in sheet.line_items.all():
+            try:
+                milestone = Milestone.objects.get(
+                    costing_sheet_line_item_id=str(li.line_item_id)
+                )
+                milestone.original_cost_amount = li.selected_amount
+                milestone.original_currency = li.selected_currency
+                milestone.save(update_fields=["original_cost_amount", "original_currency"])
+            except Milestone.DoesNotExist:
+                logger.warning(
+                    "No milestone found for line_item_id=%s on sheet id=%s",
+                    li.line_item_id, sheet.pk
+                )
+
+
+# ---------------------------------------------------------------------------
+# POService
+# ---------------------------------------------------------------------------
+class POService:
+
+    @staticmethod
+    def _generate_po_number(year):
+        with transaction.atomic():
+            row, _ = POYearCounter.objects.select_for_update().get_or_create(
+                year=year, prefix="PO", defaults={"counter": 0}
+            )
+            row.counter += 1
+            row.save(update_fields=["counter"])
+            return f"PO-{year}-{row.counter:04d}"
+
+    @staticmethod
+    @transaction.atomic
+    def generate(costing_sheet, pdr):
+        if pdr.role != "PDR":
+            raise PermissionError("Only PDR users can generate Purchase Orders.")
+        if costing_sheet.status != CostingSheet.Status.DIRECTOR_APPROVED:
+            raise CostingSheetTransitionError(
+                "A PO can only be generated from a Director-Approved Costing Sheet."
+            )
+        # Check for existing non-cancelled PO
+        existing = costing_sheet.purchase_orders.exclude(
+            status=PurchaseOrder.Status.CANCELLED
+        ).first()
+        if existing:
+            raise DuplicatePOError(
+                f"An active PO ({existing.po_number}) already exists for this Costing Sheet."
+            )
+
+        po_number = POService._generate_po_number(timezone.now().year)
+        po = PurchaseOrder.objects.create(
+            costing_sheet=costing_sheet,
+            po_number=po_number,
+            status=PurchaseOrder.Status.DRAFT,
+            pdr=pdr,
+        )
+
+        # Create PO line items from costing sheet line items
+        from projects.models import Milestone
+        for li in costing_sheet.line_items.all():
+            # Default expected delivery date from linked milestone
+            expected_date = costing_sheet.project.trf.training_start
+            try:
+                milestone = Milestone.objects.get(
+                    costing_sheet_line_item_id=str(li.line_item_id)
+                )
+                expected_date = milestone.target_date
+            except Milestone.DoesNotExist:
+                pass
+
+            POLineItem.objects.create(
+                purchase_order=po,
+                costing_sheet_line_item=li,
+                expected_delivery_date=expected_date,
+            )
+
+        ProcurementAuditService.record(
+            costing_sheet, pdr, ProcurementAuditEvent.Action.PO_GENERATED,
+            {"po_number": po_number}
+        )
+        return po
+
+    @staticmethod
+    @transaction.atomic
+    def mark_issued(po, pdr):
+        if pdr.role != "PDR":
+            raise PermissionError("Only PDR users can issue Purchase Orders.")
+        if po.status != PurchaseOrder.Status.DRAFT:
+            raise POTransitionError(f"Cannot issue a PO with status '{po.status}'.")
+        po.status = PurchaseOrder.Status.ISSUED
+        po.issued_at = timezone.now()
+        po.save(update_fields=["status", "issued_at", "updated_at"])
+        ProcurementAuditService.record(
+            po.costing_sheet, pdr, ProcurementAuditEvent.Action.PO_ISSUED,
+            {"po_number": po.po_number}
+        )
+        return po
+
+    @staticmethod
+    @transaction.atomic
+    def mark_fulfilled(po, pdr):
+        if pdr.role != "PDR":
+            raise PermissionError("Only PDR users can fulfil Purchase Orders.")
+        if po.status != PurchaseOrder.Status.ISSUED:
+            raise POTransitionError(f"Cannot fulfil a PO with status '{po.status}'.")
+        # Block if any line item requires client notification
+        blocking = po.line_items.filter(notify_client_required=True)
+        if blocking.exists():
+            raise ClientNotificationRequiredError(
+                f"{blocking.count()} line item(s) require client notification before fulfilment."
+            )
+        po.status = PurchaseOrder.Status.FULFILLED
+        po.fulfilled_at = timezone.now()
+        po.save(update_fields=["status", "fulfilled_at", "updated_at"])
+        ProcurementAuditService.record(
+            po.costing_sheet, pdr, ProcurementAuditEvent.Action.PO_FULFILLED,
+            {"po_number": po.po_number}
+        )
+        return po
+
+    @staticmethod
+    @transaction.atomic
+    def cancel(po, pdr, reason):
+        if pdr.role != "PDR":
+            raise PermissionError("Only PDR users can cancel Purchase Orders.")
+        if po.status == PurchaseOrder.Status.FULFILLED:
+            raise POTransitionError("Fulfilled Purchase Orders cannot be cancelled.")
+        po.status = PurchaseOrder.Status.CANCELLED
+        po.cancelled_at = timezone.now()
+        po.cancellation_reason = reason
+        po.save(update_fields=["status", "cancelled_at", "cancellation_reason", "updated_at"])
+        ProcurementAuditService.record(
+            po.costing_sheet, pdr, ProcurementAuditEvent.Action.PO_CANCELLED,
+            {"po_number": po.po_number, "reason": reason}
+        )
+        return po
+
+    @staticmethod
+    @transaction.atomic
+    def record_eta(po_line_item, pdr, eta_date):
+        if pdr.role != "PDR":
+            raise PermissionError("Only PDR users can record ETAs.")
+        previous_eta = po_line_item.supplier_eta
+        po_line_item.supplier_eta = eta_date
+        if previous_eta and abs((eta_date - previous_eta).days) > 7:
+            po_line_item.notify_client_required = True
+        po_line_item.save(update_fields=["supplier_eta", "notify_client_required"])
+        action = (ProcurementAuditEvent.Action.ETA_UPDATED
+                  if previous_eta else ProcurementAuditEvent.Action.ETA_RECORDED)
+        ProcurementAuditService.record(
+            po_line_item.purchase_order.costing_sheet, pdr, action,
+            {"previous_eta": str(previous_eta) if previous_eta else None,
+             "new_eta": str(eta_date)}
+        )
+        return po_line_item
+
+    @staticmethod
+    @transaction.atomic
+    def record_actual_delivery(po_line_item, pdr, delivery_date):
+        if pdr.role != "PDR":
+            raise PermissionError("Only PDR users can record delivery dates.")
+        po_line_item.actual_delivery_date = delivery_date
+        po_line_item.save(update_fields=["actual_delivery_date"])
+        ProcurementAuditService.record(
+            po_line_item.purchase_order.costing_sheet, pdr,
+            ProcurementAuditEvent.Action.DELIVERY_RECORDED,
+            {"delivery_date": str(delivery_date)}
+        )
+        return po_line_item
+
+
+def is_director_manager_role(user):
+    return user.role in {"Director", "Admin"}

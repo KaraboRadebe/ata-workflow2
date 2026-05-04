@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}{{ sheet.project.name }} — Costing Sheet{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-lg-8">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <div>
+        <h2 class="mb-1">{{ sheet.project.name }}</h2>
+        <small class="text-muted">PDR: {{ sheet.pdr.get_full_name|default:sheet.pdr.username }}</small>
+      </div>
+      <div>
+        {% if sheet.status == "Draft" %}<span class="badge bg-secondary fs-6">Draft</span>
+        {% elif sheet.status == "Submitted" %}<span class="badge bg-warning text-dark fs-6">Submitted</span>
+        {% elif sheet.status == "CDR_Approved" %}<span class="badge bg-info text-dark fs-6">CDR Approved</span>
+        {% elif sheet.status == "CDR_Rejected" %}<span class="badge bg-danger fs-6">CDR Rejected</span>
+        {% elif sheet.status == "Negotiating" %}<span class="badge bg-primary fs-6">Negotiating</span>
+        {% elif sheet.status == "Submitted_For_Director" %}<span class="badge bg-warning text-dark fs-6">Pending Director</span>
+        {% elif sheet.status == "Director_Approved" %}<span class="badge bg-success fs-6">Fully Approved</span>
+        {% elif sheet.status == "Director_Rejected" %}<span class="badge bg-danger fs-6">Director Rejected</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Line Items #}
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Line Items</h5>
+      {% if sheet.status == "Draft" and is_owner %}
+      <a href="{% url 'li_add' sheet.pk %}" class="btn btn-sm btn-outline-primary">+ Add Line Item</a>
+      {% endif %}
+    </div>
+
+    {% if line_items %}
+    <div class="table-responsive mb-4">
+      <table class="table table-sm table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Description</th><th>Qty</th>
+            <th>Provider 1</th><th>Provider 2</th><th>Provider 3</th>
+            <th>Selected</th>
+            {% if sheet.status == "Negotiating" or sheet.status == "Submitted_For_Director" or sheet.status == "Director_Approved" %}
+            <th>Original Approved</th><th>Negotiated</th>
+            {% endif %}
+            {% if sheet.status == "Draft" and is_owner %}<th></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for li in line_items %}
+          <tr>
+            <td>{{ li.description }}</td>
+            <td>{{ li.quantity }}</td>
+            <td>{% if li.provider_1_name %}{{ li.provider_1_name }}<br><small>{{ li.provider_1_amount }} {{ li.provider_1_currency }}</small>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{% if li.provider_2_name %}{{ li.provider_2_name }}<br><small>{{ li.provider_2_amount }} {{ li.provider_2_currency }}</small>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{% if li.provider_3_name %}{{ li.provider_3_name }}<br><small>{{ li.provider_3_amount }} {{ li.provider_3_currency }}</small>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{% if li.selected_provider %}<span class="badge bg-primary">Provider {{ li.selected_provider }}</span>{% else %}<span class="badge bg-danger">None</span>{% endif %}</td>
+            {% if sheet.status == "Negotiating" or sheet.status == "Submitted_For_Director" or sheet.status == "Director_Approved" %}
+            <td>{{ li.original_approved_amount|default:"—" }} {{ li.original_approved_currency }}</td>
+            <td>
+              {% if li.negotiated_amount %}
+                <strong>{{ li.negotiated_amount }} {{ li.negotiated_currency }}</strong>
+                {% if li.negotiated_amount > li.original_approved_amount %}<span class="badge bg-warning text-dark ms-1">↑</span>{% endif %}
+              {% else %}—{% endif %}
+              {% if sheet.status == "Negotiating" and is_owner %}
+              <form method="post" action="{% url 'cs_revise_quote' sheet.pk %}" class="d-inline ms-1">
+                {% csrf_token %}
+                <input type="hidden" name="line_item_id" value="{{ li.pk }}">
+                <input type="number" name="amount" step="0.01" class="form-control form-control-sm d-inline" style="width:90px" placeholder="Amount">
+                <input type="text" name="currency" class="form-control form-control-sm d-inline" style="width:55px" placeholder="ZAR">
+                <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+              </form>
+              {% endif %}
+            </td>
+            {% endif %}
+            {% if sheet.status == "Draft" and is_owner %}
+            <td>
+              <a href="{% url 'li_edit' sheet.pk li.pk %}" class="btn btn-sm btn-outline-secondary">Edit</a>
+              <form method="post" action="{% url 'li_delete' sheet.pk li.pk %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this line item?')">Del</button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted mb-4">No line items yet.</p>
+    {% endif %}
+
+    {# Audit Trail #}
+    <div x-data="{ show: false }">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h5 class="mb-0">Audit Trail</h5>
+        <button class="btn btn-sm btn-outline-secondary" @click="show = !show" x-text="show ? 'Hide' : 'Show ({{ audit_events|length }})'"></button>
+      </div>
+      <ul class="list-group list-group-flush" x-show="show" x-transition>
+        {% for ev in audit_events %}
+        <li class="list-group-item px-0">
+          <div class="d-flex justify-content-between">
+            <span><strong>{{ ev.actor.get_full_name|default:ev.actor.username }}</strong> — <span class="badge bg-secondary">{{ ev.action }}</span></span>
+            <small class="text-muted">{{ ev.timestamp|date:"d M Y H:i" }}</small>
+          </div>
+          {% if ev.detail.reason %}<div class="text-muted small fst-italic mt-1">{{ ev.detail.reason }}</div>{% endif %}
+        </li>
+        {% empty %}
+        <li class="list-group-item px-0 text-muted">No events yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  {# Actions sidebar #}
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header fw-semibold">Actions</div>
+      <div class="card-body d-grid gap-2">
+        {% if sheet.status == "Draft" and is_owner %}
+        <form method="post" action="{% url 'cs_submit' sheet.pk %}">{% csrf_token %}<button class="btn btn-primary w-100">Submit for CDR Approval</button></form>
+        {% endif %}
+        {% if sheet.status == "Submitted" and is_cdr %}
+        <form method="post" action="{% url 'cs_cdr_approve' sheet.pk %}">{% csrf_token %}<button class="btn btn-success w-100">CDR Approve</button></form>
+        <a href="{% url 'cs_cdr_reject' sheet.pk %}" class="btn btn-danger w-100">CDR Reject</a>
+        {% endif %}
+        {% if sheet.status == "CDR_Approved" and is_owner %}
+        <form method="post" action="{% url 'cs_begin_negotiation' sheet.pk %}">{% csrf_token %}<button class="btn btn-info w-100">Begin Negotiation</button></form>
+        {% endif %}
+        {% if sheet.status == "Negotiating" and is_owner %}
+        <form method="post" action="{% url 'cs_submit_for_director' sheet.pk %}">{% csrf_token %}<button class="btn btn-primary w-100">Submit to Director</button></form>
+        {% endif %}
+        {% if sheet.status == "Submitted_For_Director" and is_director %}
+        <a href="{% url 'cs_director_approve' sheet.pk %}" class="btn btn-success w-100">Director Approve</a>
+        <a href="{% url 'cs_director_reject' sheet.pk %}" class="btn btn-danger w-100">Director Reject</a>
+        {% endif %}
+        {% if sheet.status == "CDR_Rejected" and is_owner %}
+        <form method="post" action="{% url 'cs_remediate' sheet.pk %}">{% csrf_token %}<button class="btn btn-warning w-100">Revise & Resubmit</button></form>
+        {% endif %}
+        {% if sheet.status == "Director_Rejected" and is_owner %}
+        <form method="post" action="{% url 'cs_remediate' sheet.pk %}">{% csrf_token %}<button class="btn btn-warning w-100">Revise Negotiation</button></form>
+        {% endif %}
+        {% if sheet.status == "Director_Approved" and is_owner and not po %}
+        <form method="post" action="{% url 'po_generate' sheet.pk %}">{% csrf_token %}<button class="btn btn-success w-100">Generate Purchase Order</button></form>
+        {% endif %}
+        {% if po %}
+        <a href="{% url 'po_detail' po.pk %}" class="btn btn-outline-primary w-100">View PO: {{ po.po_number }}</a>
+        {% endif %}
+        <a href="{% url 'project_detail' sheet.project.pk %}" class="btn btn-outline-secondary w-100">Back to Project</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

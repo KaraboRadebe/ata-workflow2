@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Director Approval — {{ sheet.project.name }}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-8">
+    <h2 class="mb-4">Director Approval — {{ sheet.project.name }}</h2>
+
+    <h5>Line Item Summary</h5>
+    <table class="table table-sm mb-4">
+      <thead class="table-light">
+        <tr><th>Description</th><th>CDR Approved</th><th>Negotiated</th><th>Variance</th></tr>
+      </thead>
+      <tbody>
+        {% for li in line_items %}
+        <tr>
+          <td>{{ li.description }}</td>
+          <td>{{ li.original_approved_amount|default:"—" }} {{ li.original_approved_currency }}</td>
+          <td>{% if li.negotiated_amount %}<strong>{{ li.negotiated_amount }} {{ li.negotiated_currency }}</strong>{% else %}—{% endif %}</td>
+          <td>
+            {% if li.negotiated_amount and li.original_approved_amount %}
+              {% if li.negotiated_amount > li.original_approved_amount %}
+                <span class="text-danger">↑ Higher</span>
+              {% elif li.negotiated_amount < li.original_approved_amount %}
+                <span class="text-success">↓ Lower</span>
+              {% else %}
+                <span class="text-muted">Same</span>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label">{{ form.justification.label }}</label>
+        {{ form.justification }}
+      </div>
+      <button type="submit" class="btn btn-success">Approve</button>
+      <a href="{% url 'cs_detail' sheet.pk %}" class="btn btn-outline-secondary ms-2">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

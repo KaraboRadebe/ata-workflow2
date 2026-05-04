@@ -1,0 +1,70 @@
+﻿{% extends "base.html" %}
+
+{% block content %}
+<div style="max-width: 1200px; margin: 0 auto; padding: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1 style="font-size: 24px; font-weight: bold; color: #1a202c;">{{ project.name }}</h1>
+        <div style="display: flex; gap: 10px;">
+            <a href="{% url 'project_status' project.id %}" style="background-color: #2563eb; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none;">Update Status</a>
+            <a href="{% url 'milestone_create' project.id %}" style="background-color: #16a34a; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none;">Add Milestone</a>
+        </div>
+    </div>
+    
+    <div style="background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; padding: 24px; margin-bottom: 24px;">
+        <p style="margin-bottom: 8px;"><strong style="color: #374151;">Status:</strong> 
+            <span style="padding: 4px 8px; border-radius: 9999px; font-size: 12px; font-weight: 600;
+                {% if project.status == 'Active' %}background-color: #dcfce7; color: #166534;
+                {% elif project.status == 'On_Hold' %}background-color: #fef08a; color: #854d0e;
+                {% elif project.status == 'Completed' %}background-color: #dbeafe; color: #1e40af;
+                {% else %}background-color: #f3f4f6; color: #374151;{% endif %}">
+                {{ project.status }}
+            </span>
+        </p>
+        <p style="margin-bottom: 8px;"><strong style="color: #374151;">TRF:</strong> <a href="{% url 'trf_detail' project.trf.id %}" style="color: #2563eb; text-decoration: none;">{{ project.trf.project_name }}</a></p>
+        <p><strong style="color: #374151;">Created:</strong> <span style="color: #4b5563;">{{ project.created_at|date:"Y-m-d H:i" }}</span></p>
+    </div>
+    
+    <h2 style="font-size: 20px; font-weight: bold; color: #1a202c; margin-bottom: 16px;">Milestones</h2>
+    <div style="background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background-color: #e5e7eb; color: #374151; text-transform: uppercase; font-size: 12px;">
+                    <th style="padding: 12px; text-align: left;">Name</th>
+                    <th style="padding: 12px; text-align: left;">Target Date</th>
+                    <th style="padding: 12px; text-align: left;">Status</th>
+                    <th style="padding: 12px; text-align: left;">Expense</th>
+                    <th style="padding: 12px; text-align: center;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for milestone in project.milestones.all %}
+                <tr style="border-bottom: 1px solid #e5e7eb;">
+                    <td style="padding: 12px; font-weight: 500;">{{ milestone.name }}</td>
+                    <td style="padding: 12px;">{{ milestone.target_date }}</td>
+                    <td style="padding: 12px;">{{ milestone.status }}</td>
+                    <td style="padding: 12px;">
+                        {% if milestone.is_trf_expense %}
+                            <span style="color: #15803d; font-weight: 600;">💰 {{ milestone.cost_amount }} {{ milestone.currency }}</span>
+                            {% if milestone.has_cost_variance %}
+                                <span style="color: #dc2626; font-size: 12px;">(variance)</span>
+                            {% endif %}
+                        {% else %}
+                            <span style="color: #9ca3af;">—</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 12px; text-align: center;">
+                        <a href="{% url 'milestone_detail' project.id milestone.id %}" style="color: #2563eb; text-decoration: none; margin-right: 12px;">View</a>
+                        <a href="{% url 'milestone_edit' project.id milestone.id %}" style="color: #16a34a; text-decoration: none; margin-right: 12px;">Edit</a>
+                        <a href="{% url 'milestone_delete' project.id milestone.id %}" style="color: #dc2626; text-decoration: none;" onclick="return confirm('Delete this milestone?')">Delete</a>
+                    </td>
+                 </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" style="padding: 12px; text-align: center; color: #6b7280;">No milestones yet. Add one above.</td>
+                 </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

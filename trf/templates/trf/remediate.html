@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Remediate TRF — {{ trf.project_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <h2 class="mb-3">Remediate TRF</h2>
+
+    {% if last_rejection %}
+    <div class="alert alert-danger mb-4">
+      <strong>Rejection reason:</strong> {{ last_rejection.reason }}
+    </div>
+    {% endif %}
+
+    {% if form.non_field_errors %}
+    <div class="alert alert-warning">
+      {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="mb-3">
+        <label for="{{ form.project_name.id_for_label }}" class="form-label fw-semibold">Project Name</label>
+        {{ form.project_name }}
+        {% if form.project_name.errors %}
+        <div class="text-danger small mt-1">{{ form.project_name.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div class="mb-4">
+        <label for="{{ form.training_start.id_for_label }}" class="form-label fw-semibold">Training Start</label>
+        {{ form.training_start }}
+        {% if form.training_start.errors %}
+        <div class="text-danger small mt-1">{{ form.training_start.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-warning">Resubmit for Approval</button>
+        <a href="{% url 'trf_detail' trf.pk %}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

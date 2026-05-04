@@ -1,0 +1,20 @@
+﻿{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="bg-white shadow-md rounded p-6 max-w-md mx-auto">
+        <h1 class="text-xl font-bold mb-4 text-red-600">Delete Milestone</h1>
+        
+        <p class="mb-4">Are you sure you want to delete the milestone <strong>"{{ milestone.name }}"</strong>?</p>
+        <p class="mb-4 text-gray-600">This action cannot be undone.</p>
+        
+        <form method="post">
+            {% csrf_token %}
+            <div class="flex gap-2">
+                <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Confirm Delete</button>
+                <a href="{% url 'project_detail' project.id %}" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

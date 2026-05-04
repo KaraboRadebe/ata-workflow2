@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}{{ trf.project_name }} — TRF Detail{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-8">
+
+    {# ── Header ── #}
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <div>
+        <h2 class="mb-1">{{ trf.project_name }}</h2>
+        <small class="text-muted">
+          Submitted by {{ trf.submitted_by.get_full_name|default:trf.submitted_by.username }}
+          {% if trf.submitted_at %} on {{ trf.submitted_at|date:"d M Y" }}{% endif %}
+        </small>
+      </div>
+      <div>
+        {% if trf.status == "DRAFT" %}
+          <span class="badge bg-secondary fs-6">Draft</span>
+        {% elif trf.status == "PENDING_L2" or trf.status == "PENDING_L3" %}
+          <span class="badge bg-warning text-dark fs-6">{{ trf.get_status_display }}</span>
+        {% elif trf.status == "APPROVED" %}
+          <span class="badge bg-success fs-6">Approved</span>
+        {% elif trf.status == "REJECTED" %}
+          <span class="badge bg-danger fs-6">Rejected</span>
+        {% elif trf.status == "REMEDIATION" %}
+          <span class="badge bg-info text-dark fs-6">Remediation</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <dl class="row mb-4">
+      <dt class="col-sm-3">Training Start</dt>
+      <dd class="col-sm-9">{{ trf.training_start|date:"d M Y" }}</dd>
+      <dt class="col-sm-3">Created</dt>
+      <dd class="col-sm-9">{{ trf.created_at|date:"d M Y H:i" }}</dd>
+      {% if trf.remediated_at %}
+      <dt class="col-sm-3">Remediated</dt>
+      <dd class="col-sm-9">{{ trf.remediated_at|date:"d M Y H:i" }}</dd>
+      {% endif %}
+    </dl>
+
+    {# ── Milestones ── #}
+    <h5>Milestones</h5>
+    {% if milestones %}
+    <table class="table table-sm mb-4">
+      <thead class="table-light">
+        <tr><th>Name</th><th>Target Date</th></tr>
+      </thead>
+      <tbody>
+        {% for m in milestones %}
+        <tr>
+          <td>{{ m.name }}</td>
+          <td>{{ m.target_date|date:"d M Y" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No milestones.</p>
+    {% endif %}
+
+    {# ── Linked Project ── #}
+    {% if trf.project %}
+    <div class="mt-3 mb-4">
+      <h5>Linked Project</h5>
+      <p class="mb-0">
+        <a href="{% url 'project_detail' trf.project.pk %}">{{ trf.project.name }}</a>
+        &nbsp;
+        {% if trf.project.status == "Active" %}
+          <span class="badge bg-success">Active</span>
+        {% elif trf.project.status == "On_Hold" %}
+          <span class="badge bg-warning text-dark">On Hold</span>
+        {% elif trf.project.status == "Completed" %}
+          <span class="badge bg-secondary">Completed</span>
+        {% elif trf.project.status == "Cancelled" %}
+          <span class="badge bg-danger">Cancelled</span>
+        {% endif %}
+      </p>
+    </div>
+    {% endif %}
+
+    {# ── Expenses ── #}
+    <h5>Expenses</h5>
+    {% if expenses %}
+    <table class="table table-sm mb-1">
+      <thead class="table-light">
+        <tr><th>Description</th><th>Amount</th><th>Currency</th></tr>
+      </thead>
+      <tbody>
+        {% for e in expenses %}
+        <tr>
+          <td>{{ e.description }}</td>
+          <td>{{ e.amount }}</td>
+          <td>{{ e.currency }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-semibold">
+          <td>Total</td>
+          <td colspan="2">{{ total_expenses }}</td>
+        </tr>
+      </tfoot>
+    </table>
+    {% else %}
+    <p class="text-muted">No expenses.</p>
+    {% endif %}
+
+    {# ── Audit Trail ── #}
+    <div class="mt-4" x-data="{ showAudit: {% if audit_events|length <= 3 %}true{% else %}false{% endif %} }">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h5 class="mb-0">Audit Trail</h5>
+        {% if audit_events %}
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          @click="showAudit = !showAudit"
+          x-text="showAudit ? 'Hide Audit Trail ({{ audit_events|length }} event{{ audit_events|length|pluralize }})' : 'Show Audit Trail ({{ audit_events|length }} event{{ audit_events|length|pluralize }})'"
+        ></button>
+        {% endif %}
+      </div>
+
+      {% if audit_events %}
+      <ul class="list-group list-group-flush mb-4" x-show="showAudit" x-transition>
+        {% for event in audit_events %}
+        <li class="list-group-item px-0">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <strong>{{ event.actor.get_full_name|default:event.actor.username }}</strong>
+
+              {# Action badge — colour-coded by action type #}
+              {% if "SUBMITTED" in event.action %}
+                <span class="badge bg-primary ms-1">{{ event.action }}</span>
+              {% elif "APPROVED" in event.action %}
+                <span class="badge bg-success ms-1">{{ event.action }}</span>
+              {% elif "REJECTED" in event.action %}
+                <span class="badge bg-danger ms-1">{{ event.action }}</span>
+              {% elif "REMEDIATED" in event.action %}
+                <span class="badge bg-warning text-dark ms-1">{{ event.action }}</span>
+              {% else %}
+                <span class="badge bg-secondary ms-1">{{ event.action }}</span>
+              {% endif %}
+
+              <span class="text-muted small ms-1">{{ event.from_status }} → {{ event.to_status }}</span>
+            </div>
+            <small class="text-muted text-nowrap ms-3">{{ event.timestamp|date:"d M Y H:i" }}</small>
+          </div>
+          {% if event.reason %}
+          <div class="text-muted small mt-1 fst-italic">{{ event.reason }}</div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted">No audit events yet.</p>
+      {% endif %}
+    </div>
+
+  </div>
+
+  {# ── Actions Sidebar ── #}
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header fw-semibold">Actions</div>
+      <div class="card-body d-grid gap-2">
+
+        {% if trf.status == "DRAFT" and trf.submitted_by == request.user %}
+        <form method="post" action="{% url 'trf_submit' trf.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-primary w-100">Submit for Approval</button>
+        </form>
+        {% endif %}
+
+        {% if can_approve %}
+        <form method="post" action="{% url 'trf_approve' trf.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-success w-100">Approve</button>
+        </form>
+        {% endif %}
+
+        {% if can_reject %}
+        <a href="{% url 'trf_reject' trf.pk %}" class="btn btn-danger w-100">Reject</a>
+        {% endif %}
+
+        {% if can_remediate %}
+        <a href="{% url 'trf_remediate' trf.pk %}" class="btn btn-warning w-100">Remediate TRF</a>
+        {% endif %}
+
+        <a href="{% url 'trf_list' %}" class="btn btn-outline-secondary w-100">Back to List</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

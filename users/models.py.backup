@@ -1,0 +1,27 @@
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+
+
+class User(AbstractUser):
+    class Role(models.TextChoices):
+        SALES_USER = "Sales_User", "Sales User"
+        PC = "PC", "PC"
+        PDR = "PDR", "PDR"
+        CDR = "CDR", "CDR"
+        OPS_MANAGER = "Ops_Manager", "Ops Manager"
+        FINANCE = "Finance", "Finance"
+        DIRECTOR = "Director", "Director"
+        ADMIN = "Admin", "Admin"
+
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.SALES_USER,
+    )
+
+    def __str__(self):
+        return f"{self.get_full_name() or self.username} ({self.role})"
+
+    @property
+    def has_approver_profile(self):
+        return hasattr(self, "approver_profile") and self.approver_profile is not None

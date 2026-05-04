@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}My Availability — ATA Workflow{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <h2 class="mb-4">My Availability</h2>
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Current Status</h5>
+        {% if profile.is_available %}
+          <span class="badge bg-success fs-6">Available</span>
+        {% else %}
+          <span class="badge bg-danger fs-6">Unavailable</span>
+          {% if profile.delegate %}
+            <p class="mt-2 mb-0 text-muted">
+              Delegate: <strong>{{ profile.delegate.user.get_full_name|default:profile.delegate.user.username }}</strong>
+            </p>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    {% if profile.is_available %}
+      <!-- Mark as Unavailable form -->
+      <div class="card" x-data="{ showDelegate: false }">
+        <div class="card-body">
+          <h5 class="card-title">Mark as Unavailable</h5>
+          <p class="text-muted">Select a colleague at the same level to cover your approval queue while you're away.</p>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="mark_unavailable">
+            <div class="mb-3">
+              <label for="delegate" class="form-label">Delegate <span class="text-danger">*</span></label>
+              <select name="delegate" id="delegate" class="form-select" required>
+                <option value="">— Select a delegate —</option>
+                {% for approver in same_level_approvers %}
+                  <option value="{{ approver.pk }}">
+                    {{ approver.user.get_full_name|default:approver.user.username }}
+                    {% if not approver.is_available %}(currently unavailable){% endif %}
+                  </option>
+                {% empty %}
+                  <option disabled>No other approvers at your level</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-warning">Mark as Unavailable</button>
+            <a href="{% url 'trf_list' %}" class="btn btn-link">Cancel</a>
+          </form>
+        </div>
+      </div>
+
+    {% else %}
+      <!-- Mark as Available form -->
+      <div class="card">
+        <div class="card-body">
+          <h5 class="card-title">Return to Active</h5>
+          <p class="text-muted">Marking yourself available will clear your delegate and restore standard routing.</p>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="mark_available">
+            <button type="submit" class="btn btn-success">Mark as Available</button>
+            <a href="{% url 'trf_list' %}" class="btn btn-link">Cancel</a>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

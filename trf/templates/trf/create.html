@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Create TRF — ATA Workflow{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+    <h2 class="mb-4">New Training Request Form</h2>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+
+      {# ── TRF Fields ── #}
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">TRF Details</div>
+        <div class="card-body">
+          {% for field in form %}
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}
+              <div class="invalid-feedback d-block">{{ field.errors|join:", " }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# ── Milestones ── #}
+      {{ milestone_formset.management_form }}
+      <div class="card mb-4"
+           x-data="{
+             forms: {{ milestone_formset.total_form_count }},
+             maxForms: {{ milestone_formset.max_num|default:1000 }},
+             prefix: 'milestones'
+           }">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">Milestones</span>
+          <button type="button" class="btn btn-sm btn-outline-primary"
+                  @click="
+                    document.getElementById(prefix + '-' + forms + '-name').closest('.milestone-row').classList.remove('d-none');
+                    document.getElementById(prefix + '-TOTAL_FORMS').value = ++forms;
+                  ">
+            + Add Milestone
+          </button>
+        </div>
+        <div class="card-body" id="milestone-rows">
+          {% for mform in milestone_formset %}
+          <div class="row g-2 mb-2 milestone-row {% if forloop.counter0 >= milestone_formset.initial_form_count and not mform.instance.pk %}{% endif %}">
+            {{ mform.id }}
+            <div class="col-md-6">
+              <label class="form-label">Name</label>
+              {{ mform.name }}
+              {% if mform.name.errors %}<div class="invalid-feedback d-block">{{ mform.name.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Target Date</label>
+              {{ mform.target_date }}
+              {% if mform.target_date.errors %}<div class="invalid-feedback d-block">{{ mform.target_date.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              {% if milestone_formset.can_delete %}
+              <div class="form-check">
+                {{ mform.DELETE }}
+                <label class="form-check-label text-danger" for="{{ mform.DELETE.id_for_label }}">Remove</label>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# ── Expenses ── #}
+      {{ expense_formset.management_form }}
+      <div class="card mb-4"
+           x-data="{
+             forms: {{ expense_formset.total_form_count }},
+             prefix: 'expenses'
+           }">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">Expenses</span>
+          <button type="button" class="btn btn-sm btn-outline-primary"
+                  @click="
+                    document.getElementById(prefix + '-TOTAL_FORMS').value = ++forms;
+                    document.getElementById('expense-rows').querySelectorAll('.expense-row')[forms-1].classList.remove('d-none');
+                  ">
+            + Add Expense
+          </button>
+        </div>
+        <div class="card-body" id="expense-rows">
+          {% for eform in expense_formset %}
+          <div class="row g-2 mb-2 expense-row">
+            {{ eform.id }}
+            <div class="col-md-5">
+              <label class="form-label">Description</label>
+              {{ eform.description }}
+              {% if eform.description.errors %}<div class="invalid-feedback d-block">{{ eform.description.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Amount</label>
+              {{ eform.amount }}
+              {% if eform.amount.errors %}<div class="invalid-feedback d-block">{{ eform.amount.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Currency</label>
+              {{ eform.currency }}
+              {% if eform.currency.errors %}<div class="invalid-feedback d-block">{{ eform.currency.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              {% if expense_formset.can_delete %}
+              <div class="form-check">
+                {{ eform.DELETE }}
+                <label class="form-check-label text-danger" for="{{ eform.DELETE.id_for_label }}">Remove</label>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Save as Draft</button>
+        <a href="{% url 'trf_list' %}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Add Bootstrap form-control class to all formset inputs
+  document.querySelectorAll('input:not([type=checkbox]):not([type=hidden]), select, textarea').forEach(el => {
+    el.classList.add('form-control');
+  });
+</script>
+{% endblock %}

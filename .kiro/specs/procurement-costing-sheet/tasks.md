@@ -1,0 +1,289 @@
+# Implementation Plan: Procurement and Costing Sheet
+
+## Overview
+
+Implement Phase 3 of the ATA Workflow Manager as a new `procurement` Django app. The work proceeds in layers: models and migrations first, then the service layer with its state machine, then views/forms/templates, and finally PO generation and ETA tracking. Each layer is validated before the next begins.
+
+## Tasks
+
+- [ ] 1. Create the `procurement` Django app and register it
+  - Run `python manage.py startapp procurement` and add `"procurement"` to `INSTALLED_APPS`
+  - Create `procurement/urls.py` with all URL patterns from the design and wire it into the root `urls.py` under `procurement/`
+  - _Requirements: 1.1_
+
+- [ ] 2. Implement data models and initial migration
+  - [ ] 2.1 Implement `CostingSheet` model
+    - `OneToOneField` to `projects.Project`, 8-status `TextChoices`, FKs for `pdr`/`cdr`/`director`, `created_at`/`updated_at`
+    - _Requirements: 1.1, 1.2, 1.3_
+  - [ ] 2.2 Implement `CostingSheetLineItem` model
+    - `UUIDField line_item_id` (default=uuid4, editable=False, unique=True), provider 1/2/3 name/amount/currency fields, `selected_provider` IntegerChoices, `original_approved_amount`/`original_approved_currency` snapshot fields, `negotiated_amount`/`negotiated_currency`, `saved_by`/`saved_at`
+    - Add `selected_amount` and `selected_currency` model properties
+    - _Requirements: 2.1, 3.1, 6.2, 6.3_
+  - [ ] 2.3 Implement `POYearCounter` model
+    - `year`, `prefix`, `counter` fields; `unique_together = [("year", "prefix")]`
+    - _Requirements: 10.2_
+  - [ ] 2.4 Implement `PurchaseOrder` model
+    - `ForeignKey` (not OneToOne) to `CostingSheet`, `po_number` unique CharField, 4-status `TextChoices`, `pdr` FK, `issued_at`/`fulfilled_at`/`cancelled_at`/`cancellation_reason`, `created_at`/`updated_at`
+    - _Requirements: 10.2, 10.3, 10.5, 10.6, 10.7_
+  - [ ] 2.5 Implement `POLineItem` model
+    - FK to `PurchaseOrder`, FK to `CostingSheetLineItem`, `expected_delivery_date`, `supplier_eta`, `actual_delivery_date`, `notify_client_required`, `client_notified_at`/`client_notified_by`
+    - Add `is_delayed` model property (`supplier_eta > expected_delivery_date`)
+    - _Requirements: 10.4, 11.1, 11.3, 11.4, 12.1_
+  - [ ] 2.6 Implement `ProcurementAuditEvent` model
+    - FK to `CostingSheet`, `actor` FK, `action` TextChoices (all 22 action types from design), `detail` JSONField, `timestamp` auto_now_add
+    - _Requirements: 14.1–14.8_
+  - [ ] 2.7 Generate and run initial migration
+    - `python manage.py makemigrations procurement && python manage.py migrate`
+    - _Requirements: 1.1_
+  - [ ] 2.8 Add PostgreSQL immutability trigger for `ProcurementAuditEvent` in a dedicated migration
+    - Use `RunSQL` to create `prevent_procurement_audit_mutation()` function and `trg_procurement_audit_immutable` trigger on `procurement_procurementauditevent`
+    - _Requirements: 14.8_
+  - [ ]* 2.9 Write property test for audit event immutability (Property 23)
+    - **Property 23: Audit events are immutable**
+    - **Validates: Requirements 14.8**
+
+- [ ] 3. Implement permission helpers and `ProcurementAuditService`
+  - [ ] 3.1 Implement permission helpers in `procurement/permissions.py`
+    - `is_pdr`, `is_cdr`, `is_director_manager`, `is_pc` functions reading `UserProfile.role`
+    - `require_pdr`, `require_cdr`, `require_director_manager` view decorators returning 403
+    - `PROCUREMENT_ROLES` constant
+    - _Requirements: 1.4, 2.6, 4.5, 5.5, 7.5, 10.8_
+  - [ ] 3.2 Implement `ProcurementAuditService` in `procurement/services.py`
+    - `record(sheet, actor, action, detail)` — INSERT only, never UPDATE or DELETE
+    - _Requirements: 14.1–14.6_
+
+- [ ] 4. Implement `CostingSheetService` — creation and line item management
+  - [ ] 4.1 Implement `CostingSheetService.create()`
+    - Raise `CostingSheetTransitionError` if project not Active
+    - Raise `DuplicateCostingSheetError` if sheet already exists for project
+    - Raise `PermissionError` if user is not PDR
+    - Create sheet with `status=Draft`, record audit event `CS_CREATED`
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
+  - [ ]* 4.2 Write property tests for Costing Sheet creation invariants (Properties 1–4)
+    - **Property 1: Costing Sheet creation invariant** — **Validates: Requirements 1.1, 1.2**
+    - **Property 2: One Costing Sheet per Project** — **Validates: Requirements 1.3**
+    - **Property 3: Non-PDR cannot create a Costing Sheet** — **Validates: Requirements 1.4**
+    - **Property 4: Non-Active Project blocks creation** — **Validates: Requirements 1.5**
+  - [ ] 4.3 Implement line item add/edit/delete in `CostingSheetService`
+    - `add_line_item(sheet, pdr, data)` — raises `CostingSheetLockedError` if sheet not Draft; validates provider name+amount+currency co-presence; records `LI_CREATED` audit event
+    - `edit_line_item(sheet, line_item, pdr, data)` — same Draft guard; records `LI_UPDATED`
+    - `delete_line_item(sheet, line_item, pdr)` — same Draft guard; records `LI_DELETED`
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
+  - [ ]* 4.4 Write property tests for line item management (Properties 5–8)
+    - **Property 5: Draft line items are mutable by the PDR** — **Validates: Requirements 2.1, 2.3**
+    - **Property 6: Provider name without amount/currency is rejected** — **Validates: Requirements 2.2**
+    - **Property 7: Line item deletion from a Draft sheet** — **Validates: Requirements 2.4**
+    - **Property 8: Non-Draft sheets lock line items** — **Validates: Requirements 2.7**
+
+- [ ] 5. Implement `CostingSheetService` — submission and CDR stage
+  - [ ] 5.1 Implement `CostingSheetService.submit()`
+    - Raise `ValidationError` if zero line items or any line item missing `selected_provider`
+    - Transition `Draft → Submitted`; record `CS_SUBMITTED` audit event
+    - Send in-app notification to all CDR users via `NotificationService`
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
+  - [ ]* 5.2 Write property tests for submission validation (Properties 9–10)
+    - **Property 9: Submission validation rejects incomplete sheets** — **Validates: Requirements 3.3, 4.2**
+    - **Property 10: Valid submission sets status to Submitted** — **Validates: Requirements 4.4**
+  - [ ] 5.3 Implement `CostingSheetService.cdr_approve()`
+    - Raise `PermissionError` if user is not CDR or user == sheet.pdr
+    - Snapshot `original_approved_amount`/`original_approved_currency` on all line items from selected provider fields
+    - Transition `Submitted → CDR_Approved`; record `CS_CDR_APPROVED` audit event
+    - Notify originating PDR via `NotificationService`
+    - _Requirements: 5.1, 5.2, 5.5, 5.6_
+  - [ ] 5.4 Implement `CostingSheetService.cdr_reject()`
+    - Raise `PermissionError` if user is not CDR or user == sheet.pdr
+    - Require non-empty `reason`; transition `Submitted → CDR_Rejected`; record `CS_CDR_REJECTED` audit event with reason in detail
+    - Notify originating PDR
+    - _Requirements: 5.3, 5.4, 5.5, 5.6_
+  - [ ]* 5.5 Write property tests for CDR stage (Properties 11–12)
+    - **Property 11: CDR approval snapshots original amounts** — **Validates: Requirements 5.2**
+    - **Property 12: Submitting PDR cannot act as CDR approver** — **Validates: Requirements 5.6**
+
+- [ ] 6. Implement `CostingSheetService` — negotiation and Director stage
+  - [ ] 6.1 Implement `CostingSheetService.begin_negotiation()`
+    - Raise `PermissionError` if user is not the sheet's PDR
+    - Transition `CDR_Approved → Negotiating`; record `CS_NEGOTIATION_STARTED` audit event
+    - _Requirements: 6.1_
+  - [ ] 6.2 Implement `CostingSheetService.revise_quote()`
+    - Raise `CostingSheetTransitionError` if sheet not Negotiating
+    - Raise `PermissionError` if user is not the sheet's PDR
+    - Update `negotiated_amount`/`negotiated_currency` on the line item; leave `original_approved_amount`/`original_approved_currency` untouched
+    - Record `CS_QUOTE_REVISED` audit event with old/new values in detail
+    - _Requirements: 6.2, 6.3, 6.4, 6.6_
+  - [ ]* 6.3 Write property test for negotiation snapshot preservation (Property 13)
+    - **Property 13: Negotiation revision preserves original snapshot** — **Validates: Requirements 6.3**
+  - [ ] 6.4 Implement `CostingSheetService.submit_for_director()`
+    - Raise `PermissionError` if user is not the sheet's PDR
+    - Transition `Negotiating → Submitted_For_Director`; record `CS_SUBMITTED_DIRECTOR` audit event
+    - Notify all Director_Manager users via `NotificationService`
+    - _Requirements: 6.5_
+  - [ ] 6.5 Implement `CostingSheetService.director_approve()`
+    - Raise `PermissionError` if user lacks Director_Manager role or user == sheet.cdr
+    - Raise `ValidationError` if any line item has `negotiated_amount > original_approved_amount` and `justification` is empty
+    - Transition `Submitted_For_Director → Director_Approved`; record `CS_DIRECTOR_APPROVED` audit event
+    - Call `_link_milestones(sheet)`; notify originating PDR
+    - _Requirements: 7.1, 7.2, 7.5, 7.6_
+  - [ ] 6.6 Implement `CostingSheetService.director_reject()`
+    - Raise `PermissionError` if user lacks Director_Manager role or user == sheet.cdr
+    - Require non-empty `reason`; transition `Submitted_For_Director → Director_Rejected`; record `CS_DIRECTOR_REJECTED` audit event with reason
+    - Notify originating PDR
+    - _Requirements: 7.3, 7.4, 7.5, 7.6_
+  - [ ]* 6.7 Write property tests for Director stage (Properties 14, 14b)
+    - **Property 14: CDR approver cannot act as Director approver** — **Validates: Requirements 7.6**
+    - **Property 14b: Director approval requires justification when negotiated > original** — **Validates: Requirements 7.2**
+
+- [ ] 7. Implement `CostingSheetService` — remediation and Milestone linkage
+  - [ ] 7.1 Implement `CostingSheetService.remediate()` (CDR_Rejected → Draft)
+    - Raise `PermissionError` if user is not the sheet's PDR
+    - Transition `CDR_Rejected → Draft`; record `CS_REMEDIATED` audit event; display rejection reason in context
+    - _Requirements: 8.1, 8.2, 8.3, 8.4_
+  - [ ] 7.2 Implement `CostingSheetService.remediate_after_director()` (Director_Rejected → Negotiating)
+    - Raise `PermissionError` if user is not the sheet's PDR
+    - Transition `Director_Rejected → Negotiating`; retain existing `negotiated_amount` values; record `CS_REMEDIATED` audit event
+    - _Requirements: 8.1, 8.2, 8.3, 8.4_
+  - [ ] 7.3 Implement `CostingSheetService._link_milestones()`
+    - For each line item, look up `Milestone` where `costing_sheet_line_item_id == str(line_item.line_item_id)`
+    - Write `original_cost_amount` and `original_currency` from the line item's final negotiated (or approved) amount
+    - Log unmatched line items as warnings in audit detail; do not block approval
+    - _Requirements: 9.1, 9.2, 9.3, 9.4_
+  - [ ]* 7.4 Write property test for Milestone linkage (Property 15)
+    - **Property 15: Director approval links Milestones** — **Validates: Requirements 9.1**
+
+- [ ] 8. Checkpoint — service layer complete
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 9. Implement `POService` — PO generation and number sequencing
+  - [ ] 9.1 Implement `POService._generate_po_number(year)`
+    - `SELECT FOR UPDATE` on `POYearCounter` row for the given year (get_or_create)
+    - Increment counter, save, return `f"PO-{year}-{counter:04d}"`
+    - _Requirements: 10.2_
+  - [ ] 9.2 Implement `POService.generate(costing_sheet, pdr)`
+    - Raise `CostingSheetTransitionError` if sheet not `Director_Approved`
+    - Raise `PermissionError` if user is not PDR
+    - Raise `DuplicatePOError` if a non-Cancelled PO already exists for the sheet
+    - Call `_generate_po_number(current_year)` inside `transaction.atomic()`
+    - Create `PurchaseOrder` with `status=Draft`; create one `POLineItem` per CS line item with `expected_delivery_date` from linked Milestone's `target_date`
+    - Record `PO_GENERATED` audit event
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.8, 10.9_
+  - [ ]* 9.3 Write property tests for PO generation (Properties 16–19)
+    - **Property 16: PO number format invariant** — **Validates: Requirements 10.2**
+    - **Property 17: PO numbers are unique within a year** — **Validates: Requirements 10.2**
+    - **Property 18: PO line item defaults to Milestone target date** — **Validates: Requirements 10.4**
+    - **Property 19: One active PO per Costing Sheet** — **Validates: Requirements 10.9**
+
+- [ ] 10. Implement `POService` — status transitions and ETA tracking
+  - [ ] 10.1 Implement `POService.mark_issued(po, pdr)`
+    - Raise `PermissionError` if user is not PDR; transition `Draft → Issued`; set `issued_at`; record `PO_ISSUED` audit event
+    - _Requirements: 10.5_
+  - [ ] 10.2 Implement `POService.mark_fulfilled(po, pdr)`
+    - Raise `ClientNotificationRequiredError` if any line item has `notify_client_required=True`
+    - Transition `Issued → Fulfilled`; set `fulfilled_at`; record `PO_FULFILLED` audit event
+    - _Requirements: 10.6, 12.2_
+  - [ ] 10.3 Implement `POService.cancel(po, pdr, reason)`
+    - Raise `POTransitionError` if status is Fulfilled; transition `Draft/Issued → Cancelled`; set `cancelled_at` and `cancellation_reason`; record `PO_CANCELLED` audit event
+    - _Requirements: 10.7_
+  - [ ] 10.4 Implement `POService.record_eta(po_line_item, pdr, eta_date)` and `update_eta()`
+    - Store `supplier_eta`; if previous ETA exists and `abs((new_eta - previous_eta).days) > 7`, set `notify_client_required=True`
+    - Record `ETA_RECORDED` or `ETA_UPDATED` audit event with previous/new ETA in detail
+    - _Requirements: 11.1, 11.2, 11.5, 11.6, 12.1_
+  - [ ] 10.5 Implement `POService.record_actual_delivery(po_line_item, pdr, delivery_date)`
+    - Set `actual_delivery_date`; record `DELIVERY_RECORDED` audit event
+    - _Requirements: 11.7_
+  - [ ] 10.6 Implement client notification confirmation in `POService`
+    - Method to record PDR confirmation: set `client_notified_at`, `client_notified_by`, clear `notify_client_required`; record `CLIENT_NOTIFIED` audit event
+    - _Requirements: 12.3_
+  - [ ]* 10.7 Write property tests for ETA and fulfillment (Properties 20–22)
+    - **Property 20: ETA delay detection** — **Validates: Requirements 11.4**
+    - **Property 21: ETA delta > 7 days sets notify_client_required** — **Validates: Requirements 12.1**
+    - **Property 22: notify_client_required blocks Fulfilled transition** — **Validates: Requirements 12.2**
+
+- [ ] 11. Checkpoint — service layer and PO logic complete
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 12. Implement forms
+  - [ ] 12.1 Implement `CostingSheetLineItemForm`
+    - Fields: `description`, `unit`, `quantity`, provider 1/2/3 name/amount/currency, `selected_provider`
+    - `clean()` validates provider name+amount+currency co-presence for each provider slot
+    - _Requirements: 2.1, 2.2, 3.1_
+  - [ ] 12.2 Implement `CDRRejectForm` and `DirectorRejectForm`
+    - Single `reason` CharField (required); used for both CDR and Director rejection flows
+    - _Requirements: 5.3, 7.3_
+  - [ ] 12.3 Implement `DirectorApproveForm`
+    - Optional `justification` TextField; `clean()` raises if any line item has `negotiated_amount > original_approved_amount` and justification is blank
+    - _Requirements: 7.2_
+  - [ ] 12.4 Implement `POCancelForm` and `POLineItemETAForm`
+    - `POCancelForm`: required `reason` field
+    - `POLineItemETAForm`: `eta_date` DateField
+    - _Requirements: 10.7, 11.1_
+
+- [ ] 13. Implement Costing Sheet views and templates
+  - [ ] 13.1 Implement `cs_list` view and `cs_list.html` template
+    - List all sheets filtered by role (CDR sees all; PDR sees own; PC sees project-linked)
+    - Show `status` badge prominently; link to detail
+    - _Requirements: 13.1, 13.2, 13.3_
+  - [ ] 13.2 Implement `cs_create` view and `cs_create.html` template
+    - GET: render empty form; POST: call `CostingSheetService.create()`, redirect to detail on success
+    - Show error messages from service exceptions
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
+  - [ ] 13.3 Implement `cs_detail` view and `cs_detail.html` template
+    - Display sheet header, all line items with three provider quotes side-by-side (Alpine.js for comparison highlight), `original_approved_amount` vs `negotiated_amount` columns when applicable
+    - Show action buttons conditionally based on status and user role
+    - Display full audit trail in chronological order at the bottom
+    - _Requirements: 3.4, 6.4, 7.1, 13.3, 14.6_
+  - [ ] 13.4 Implement `li_add`, `li_edit`, `li_delete` views and templates
+    - `li_add`/`li_edit`: render `CostingSheetLineItemForm`; call service on POST
+    - `li_delete`: confirmation POST; call `delete_line_item()`
+    - _Requirements: 2.1, 2.3, 2.4_
+  - [ ] 13.5 Implement CDR approval/rejection views (`cs_cdr_approve`, `cs_cdr_reject`)
+    - `cs_cdr_approve`: POST only; call `cdr_approve()`
+    - `cs_cdr_reject`: GET renders `CDRRejectForm`; POST calls `cdr_reject()`
+    - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  - [ ] 13.6 Implement negotiation views (`cs_begin_negotiation`, `cs_revise_quote`, `cs_submit_for_director`)
+    - `cs_begin_negotiation`: POST only; call `begin_negotiation()`
+    - `cs_revise_quote`: POST; call `revise_quote()` for each line item submitted
+    - `cs_submit_for_director`: POST only; call `submit_for_director()`
+    - _Requirements: 6.1, 6.2, 6.5_
+  - [ ] 13.7 Implement Director approval/rejection views (`cs_director_approve`, `cs_director_reject`)
+    - `cs_director_approve`: GET renders `DirectorApproveForm`; POST calls `director_approve()`
+    - `cs_director_reject`: GET renders `DirectorRejectForm`; POST calls `director_reject()`
+    - _Requirements: 7.1, 7.2, 7.3, 7.4_
+  - [ ] 13.8 Implement `cs_remediate` view
+    - GET: render sheet with rejection reason displayed; POST: call `remediate()` or `remediate_after_director()` based on current status
+    - _Requirements: 8.1, 8.2, 8.3_
+
+- [ ] 14. Implement Purchase Order views and templates
+  - [ ] 14.1 Implement `po_generate` view
+    - POST only; call `POService.generate()`; redirect to `po_detail` on success
+    - Show `DuplicatePOError` inline if a non-cancelled PO already exists
+    - _Requirements: 10.1, 10.2, 10.3, 10.9_
+  - [ ] 14.2 Implement `po_detail` view and `po_detail.html` template
+    - Display PO header, all line items with `expected_delivery_date` vs `supplier_eta` side-by-side
+    - Show delay indicator (Alpine.js reactive) when `supplier_eta > expected_delivery_date`
+    - Show `notify_client_required` flag prominently when active
+    - Display full audit trail at the bottom
+    - _Requirements: 11.3, 11.4, 12.1, 13.3, 14.6_
+  - [ ] 14.3 Implement `po_issue`, `po_fulfill`, `po_cancel` views
+    - `po_issue`: POST only; call `mark_issued()`
+    - `po_fulfill`: POST only; call `mark_fulfilled()`; show `ClientNotificationRequiredError` inline
+    - `po_cancel`: GET renders `POCancelForm`; POST calls `cancel()`
+    - _Requirements: 10.5, 10.6, 10.7, 12.2_
+  - [ ] 14.4 Implement `po_li_eta` and `po_li_delivery` views
+    - `po_li_eta`: GET renders `POLineItemETAForm`; POST calls `record_eta()` or `update_eta()`
+    - `po_li_delivery`: POST; call `record_actual_delivery()`; show "suggest Fulfilled" prompt if all items have actual delivery dates
+    - _Requirements: 11.1, 11.2, 11.5, 11.7, 11.8_
+
+- [ ] 15. Add Costing Sheet and PO summary to Project detail page
+  - Extend the Phase 2 `project_detail` view/template to show a procurement summary panel: Costing Sheet status (or "None") and, if a PO exists, PO number and PO status
+  - _Requirements: 13.4_
+
+- [ ] 16. Final checkpoint — full feature wired together
+  - Ensure all tests pass, ask the user if questions arise.
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for faster MVP
+- Requirement 12 (Client ETA Notification) is flagged as optional/MVP-deferrable in the requirements; tasks 10.4, 10.6, and 10.7 cover it but can be skipped
+- Property tests use `hypothesis`; each test file should include the tag comment `# Feature: procurement-costing-sheet, Property N: ...`
+- The PostgreSQL immutability trigger (task 2.8) must be applied in its own migration so it survives fresh `migrate` runs
+- `POService._generate_po_number()` must always run inside `transaction.atomic()` to guarantee the `SELECT FOR UPDATE` is effective
+- Phase 2 `Milestone.original_cost_amount` and `original_currency` are write-protected in `MilestoneService.update()` — `_link_milestones()` writes them directly via `Milestone.objects.filter(...).update(...)` bypassing the service

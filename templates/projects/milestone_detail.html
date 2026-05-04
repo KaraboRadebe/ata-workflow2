@@ -1,0 +1,66 @@
+﻿{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1 style="font-size: 24px; font-weight: bold; color: #1a202c;">{{ milestone.name }}</h1>
+        <div style="display: flex; gap: 10px;">
+            <a href="{% url 'milestone_edit' project.id milestone.id %}" style="background-color: #3b82f6; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none; display: inline-block;">Edit</a>
+            <a href="{% url 'milestone_delete' project.id milestone.id %}" style="background-color: #ef4444; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none; display: inline-block;" onclick="return confirm('Delete this milestone?')">Delete</a>
+            <a href="{% url 'project_detail' project.id %}" style="background-color: #6b7280; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none; display: inline-block;">Back to Project</a>
+        </div>
+    </div>
+    
+    <div style="background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; padding: 24px;">
+        <table style="width: 100%;">
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 12px; text-align: left; width: 33%; color: #374151; font-weight: 600;">Project:</th>
+                <td style="padding: 12px;"><a href="{% url 'project_detail' project.id %}" style="color: #2563eb; text-decoration: none;">{{ project.name }}</a></td>
+             </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600;">Target Date:</th>
+                <td style="padding: 12px; color: #1f2937;">{{ milestone.target_date }}</td>
+             </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600;">Status:</th>
+                <td style="padding: 12px;">
+                    <span style="padding: 4px 8px; border-radius: 9999px; font-size: 12px; font-weight: 600; 
+                        {% if milestone.status == 'Pending' %}background-color: #fef08a; color: #854d0e;
+                        {% elif milestone.status == 'In_Progress' %}background-color: #bfdbfe; color: #1e40af;
+                        {% elif milestone.status == 'Completed' %}background-color: #bbf7d0; color: #166534;
+                        {% else %}background-color: #e5e7eb; color: #374151;{% endif %}">
+                        {{ milestone.status }}
+                    </span>
+                 </td>
+             </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600;">Description:</th>
+                <td style="padding: 12px; color: #4b5563;">{{ milestone.description|default:"—" }}</td>
+             </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600;">TRF Expense:</th>
+                <td style="padding: 12px;">
+                    {% if milestone.is_trf_expense %}
+                        <span style="color: #15803d; font-weight: 600;">✅ Yes - {{ milestone.cost_amount }} {{ milestone.currency }}</span>
+                        {% if milestone.has_cost_variance %}
+                            <div style="color: #dc2626; font-size: 14px; margin-top: 4px;">⚠️ Variance from original: {{ milestone.original_cost_amount }} {{ milestone.original_currency }}</div>
+                        {% endif %}
+                    {% else %}
+                        <span style="color: #6b7280;">❌ No</span>
+                    {% endif %}
+                 </td>
+             </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600;">Created:</th>
+                <td style="padding: 12px; color: #4b5563;">{{ milestone.created_at|date:"Y-m-d H:i" }} by {{ milestone.created_by.username }}</td>
+             </tr>
+            {% if milestone.updated_at %}
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600;">Last Updated:</th>
+                <td style="padding: 12px; color: #4b5563;">{{ milestone.updated_at|date:"Y-m-d H:i" }} by {{ milestone.updated_by.username|default:"—" }}</td>
+             </tr>
+            {% endif %}
+        </table>
+    </div>
+</div>
+{% endblock %}
