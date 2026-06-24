@@ -16,6 +16,18 @@ from .forms import (
     LineItemForm, POCancelForm, RejectForm, ReviseQuoteForm,
 )
 from .models import CostingSheet, CostingSheetLineItem, POLineItem, PurchaseOrder
+from .payment_views import (
+    payment_requisition_list,
+    payment_requisition_create,
+    payment_requisition_detail,
+    payment_requisition_submit,
+    payment_requisition_approve_l2,
+    payment_requisition_approve_l3,
+    payment_requisition_reject,
+    payment_requisition_pay,
+    payment_requisition_l2_queue,
+    payment_requisition_l3_queue,
+)
 from .permissions import is_cdr, is_director_manager, is_pdr
 from .services import CostingSheetService, POService
 
@@ -401,6 +413,7 @@ def pod_upload(request, po_pk):
         signed_by = request.POST.get("signed_by", "").strip()
         signed_at = request.POST.get("signed_at", "")
         notes = request.POST.get("notes", "")
+        existing_pod = getattr(po, "pod", None)
         if not signed_by or not signed_at:
             messages.error(request, "Signed by and signed date are required.")
         else:
@@ -410,6 +423,7 @@ def pod_upload(request, po_pk):
                     "pod_file": request.FILES["pod_file"],
                     "signed_by": signed_by,
                     "signed_at": signed_at,
+                    "signature_data": existing_pod.signature_data if existing_pod else "",
                     "notes": notes,
                     "uploaded_by": request.user,
                 }
@@ -426,6 +440,8 @@ def stock_update(request, po_pk, li_pk):
     if request.method == "POST":
         new_stage = request.POST.get("stage")
         notes = request.POST.get("notes", "")
+        signed_by = request.POST.get("signed_by", "").strip()
+        signature_data = request.POST.get("signature_data", "").strip()
 
         # Validate: cannot mark Delivered without at least one photo/COAS
         if new_stage == StockMovement.Stage.DELIVERED:
@@ -439,7 +455,28 @@ def stock_update(request, po_pk, li_pk):
                 )
                 return redirect("po_detail", po_pk=po_pk)
 
-        movement, _ = StockMovement.objects.update_or_create(
+            if not signature_data:
+                messages.error(
+                    request,
+                    "A delivery signature is required to mark stock as Delivered."
+                )
+                return redirect("po_detail", po_pk=po_pk)
+
+            signed_by = signed_by or request.user.get_full_name() or request.user.username
+            existing_pod = getattr(po, "pod", None)
+            ProofOfDelivery.objects.update_or_create(
+                purchase_order=po,
+                defaults={
+                    "pod_file": existing_pod.pod_file if existing_pod else None,
+                    "signed_by": signed_by,
+                    "signed_at": date.today(),
+                    "signature_data": signature_data,
+                    "notes": notes,
+                    "uploaded_by": request.user,
+                }
+            )
+
+        StockMovement.objects.update_or_create(
             po_line_item=li,
             defaults={"stage": new_stage, "notes": notes, "updated_by": request.user}
         )

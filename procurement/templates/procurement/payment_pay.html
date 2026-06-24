@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Mark Payment Requisition Paid{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title mb-4">Mark Requisition #{{ requisition.pk }} as Paid</h2>
+        <p class="text-muted">Upload proof of payment and confirm the payment status.</p>
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label">{{ form.proof_of_payment.label }}</label>
+            {{ form.proof_of_payment }}
+            {% if form.proof_of_payment.errors %}
+            <div class="invalid-feedback d-block">{{ form.proof_of_payment.errors|join:", " }}</div>
+            {% endif %}
+          </div>
+          <button type="submit" class="btn btn-success">Mark Paid</button>
+          <a href="{% url 'payment_requisition_detail' requisition.pk %}" class="btn btn-outline-secondary ms-2">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

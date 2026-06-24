@@ -31,4 +31,15 @@ urlpatterns = [
     path("po/<int:po_pk>/documents/upload/", views.doc_upload, name="doc_upload"),
     path("po/<int:po_pk>/pod/upload/", views.pod_upload, name="pod_upload"),
     path("po/<int:po_pk>/stock/<int:li_pk>/update/", views.stock_update, name="stock_update"),
+    # PHASE 5: Payment Requisition (NEW)
+    path('payment-requisitions/', views.payment_requisition_list, name='payment_requisition_list'),
+    path('payment-requisitions/create/', views.payment_requisition_create, name='payment_requisition_create'),
+    path('payment-requisitions/<int:pk>/', views.payment_requisition_detail, name='payment_requisition_detail'),
+    path('payment-requisitions/<int:pk>/submit/', views.payment_requisition_submit, name='payment_requisition_submit'),
+    path('payment-requisitions/<int:pk>/approve/l2/', views.payment_requisition_approve_l2, name='payment_requisition_approve_l2'),
+    path('payment-requisitions/<int:pk>/approve/l3/', views.payment_requisition_approve_l3, name='payment_requisition_approve_l3'),
+    path('payment-requisitions/<int:pk>/reject/', views.payment_requisition_reject, name='payment_requisition_reject'),
+    path('payment-requisitions/<int:pk>/pay/', views.payment_requisition_pay, name='payment_requisition_pay'),
+    path('payment-requisitions/queue/l2/', views.payment_requisition_l2_queue, name='payment_requisition_l2_queue'),
+    path('payment-requisitions/queue/l3/', views.payment_requisition_l3_queue, name='payment_requisition_l3_queue'),
 ]

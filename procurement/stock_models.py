@@ -83,9 +83,10 @@ class ProofOfDelivery(models.Model):
     purchase_order    = models.OneToOneField(
         PurchaseOrder, on_delete=models.CASCADE, related_name="pod"
     )
-    pod_file          = models.FileField(upload_to=pod_upload_path)
+    pod_file          = models.FileField(upload_to=pod_upload_path, blank=True, null=True)
     signed_by         = models.CharField(max_length=255, help_text="Name of person who signed")
     signed_at         = models.DateField()
+    signature_data    = models.TextField(blank=True, default='', help_text="Base64-encoded signature image data")
     notes             = models.TextField(blank=True)
     uploaded_by       = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,

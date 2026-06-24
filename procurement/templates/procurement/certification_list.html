@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Certifications{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3">Certifications</h1>
+    <p class="text-muted">Manage certifications and renewal reminders.</p>
+  </div>
+  <div>
+    <a href="{% url 'certification_create' %}" class="btn btn-primary">New Certification</a>
+  </div>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        <th>Contact</th>
+        <th>Type</th>
+        <th>Issue Date</th>
+        <th>Expiry Date</th>
+        <th>Reminder</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for certification in certifications %}
+      <tr>
+        <td>{{ certification.contact.get_full_name|default:certification.contact.username }}</td>
+        <td>{{ certification.get_certification_type_display }}</td>
+        <td>{{ certification.issue_date }}</td>
+        <td>{{ certification.expiry_date }}</td>
+        <td>
+          {% if certification.reminder_sent %}
+          <span class="badge bg-success">Sent</span>
+          {% else %}
+          <span class="badge bg-warning text-dark">Pending</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'certification_edit' certification.pk %}" class="btn btn-sm btn-outline-primary">Edit</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="6" class="text-center text-muted py-4">No certifications found.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

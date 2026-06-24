@@ -10,6 +10,8 @@ urlpatterns = [
     path("trf/", include("trf.urls")),
     path("projects/", include("projects.urls")),
     path("procurement/", include("procurement.urls")),
+    path("reports/", include("procurement.reports_urls")),
+    path("certifications/", include("procurement.certifications_urls")),
     path("", RedirectView.as_view(url="/trf/", permanent=False)),
 ]
 

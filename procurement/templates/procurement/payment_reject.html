@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Reject Payment Requisition{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <h2 class="mb-4">Reject Payment Requisition #{{ requisition.pk }}</h2>
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label">{{ form.reason.label }}</label>
+        {{ form.reason }}
+        {% if form.reason.errors %}
+        <div class="invalid-feedback d-block">{{ form.reason.errors|join:", " }}</div>
+        {% endif %}
+      </div>
+      <button type="submit" class="btn btn-danger">Reject</button>
+      <a href="{% url 'payment_requisition_detail' requisition.pk %}" class="btn btn-outline-secondary ms-2">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

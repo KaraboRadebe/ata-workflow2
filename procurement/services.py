@@ -1,8 +1,11 @@
 import logging
-from datetime import date
+from datetime import date, timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from django.utils import timezone
 
 from .exceptions import (
@@ -13,6 +16,7 @@ from .exceptions import (
     POTransitionError,
 )
 from .models import (
+    Certification,
     CostingSheet,
     CostingSheetLineItem,
     POLineItem,
@@ -20,6 +24,9 @@ from .models import (
     ProcurementAuditEvent,
     PurchaseOrder,
 )
+from .payment_models import PaymentRequisition
+from trf.models import TRFApproval
+from projects.models import Project
 
 logger = logging.getLogger(__name__)
 
@@ -454,3 +461,132 @@ class POService:
 
 def is_director_manager_role(user):
     return user.role in {"Director", "Admin"}
+
+
+class CertificationService:
+    REMINDER_THRESHOLDS = [90, 60, 30]
+
+    @staticmethod
+    def create(cleaned_data):
+        certification = Certification.objects.create(
+            contact=cleaned_data["contact"],
+            certification_type=cleaned_data["certification_type"],
+            issue_date=cleaned_data["issue_date"],
+            expiry_date=cleaned_data.get("expiry_date"),
+        )
+        return certification
+
+    @staticmethod
+    def update(certification, cleaned_data):
+        certification.contact = cleaned_data["contact"]
+        certification.certification_type = cleaned_data["certification_type"]
+        certification.issue_date = cleaned_data["issue_date"]
+        certification.expiry_date = cleaned_data.get("expiry_date")
+        certification.save()
+        return certification
+
+    @staticmethod
+    def send_expiry_reminders():
+        today = date.today()
+        reminders_sent = 0
+
+        for threshold in CertificationService.REMINDER_THRESHOLDS:
+            target_date = today + timedelta(days=threshold)
+            certifications = Certification.objects.filter(
+                expiry_date=target_date,
+            ).exclude(
+                reminder_sent_at__date=today,
+            )
+            for certification in certifications:
+                CertificationService._send_reminder(certification, threshold)
+                reminders_sent += 1
+
+        return reminders_sent
+
+    @staticmethod
+    def _send_reminder(certification, days_before):
+        recipient = certification.contact.email or certification.contact.username
+        subject = f"Certification expires in {days_before} days: {certification.certification_type}"
+        body = (
+            f"Hello {certification.contact.get_full_name() or certification.contact.username},\n\n"
+            f"Your {certification.certification_type} certification expires on {certification.expiry_date}.\n"
+            f"Please arrange renewal before the expiry date.\n\n"
+            f"This is a reminder sent {days_before} days before expiry.\n"
+        )
+        try:
+            send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [recipient], fail_silently=False)
+        except Exception:
+            logger.exception("Failed to send certification reminder to %s", recipient)
+        certification.reminder_sent = True
+        certification.reminder_sent_at = timezone.now()
+        certification.save(update_fields=["reminder_sent", "reminder_sent_at"])
+
+
+class DashboardReportService:
+    @staticmethod
+    def overview_summary():
+        project_status = DashboardReportService.projects_by_status()
+        payment_status = DashboardReportService.payment_requisition_status()
+        procurement_summary = DashboardReportService.procurement_summary()
+        cycle_data = DashboardReportService.trf_cycle_time_data()
+
+        return {
+            "project_status_counts": project_status["summary"],
+            "payment_status_counts": payment_status["summary"],
+            "procurement_summary": procurement_summary,
+            "trf_cycle_average": cycle_data["average_days"],
+            "trf_cycle_labels": cycle_data["labels"],
+            "trf_cycle_values": cycle_data["values"],
+        }
+
+    @staticmethod
+    def trf_cycle_time_data():
+        approvals = TRFApproval.objects.filter(
+            level=TRFApproval.Level.L3,
+            action=TRFApproval.Action.APPROVED,
+        ).select_related("trf")
+        durations = []
+        for approval in approvals:
+            if approval.trf.submitted_at:
+                delta = approval.acted_at.date() - approval.trf.submitted_at.date()
+                durations.append(delta.days)
+
+        labels = [f"TRF {idx + 1}" for idx in range(len(durations))]
+        return {
+            "labels": labels,
+            "values": durations,
+            "average_days": sum(durations) / len(durations) if durations else 0,
+            "summary": {
+                "total_approved": len(durations),
+                "average_days": round(sum(durations) / len(durations), 1) if durations else 0,
+            },
+        }
+
+    @staticmethod
+    def projects_by_status():
+        counts = Project.objects.values("status").annotate(count=Count("pk"))
+        summary = {item["status"]: item["count"] for item in counts}
+        return {
+            "labels": list(summary.keys()),
+            "values": list(summary.values()),
+            "summary": summary,
+        }
+
+    @staticmethod
+    def payment_requisition_status():
+        counts = PaymentRequisition.objects.values("status").annotate(count=Count("pk"))
+        summary = {item["status"]: item["count"] for item in counts}
+        return {
+            "labels": list(summary.keys()),
+            "values": list(summary.values()),
+            "summary": summary,
+        }
+
+    @staticmethod
+    def procurement_summary():
+        sheet_counts = CostingSheet.objects.values("status").annotate(count=Count("pk"))
+        po_counts = PurchaseOrder.objects.values("status").annotate(count=Count("pk"))
+        return {
+            "costing_sheets": {item["status"]: item["count"] for item in sheet_counts},
+            "purchase_orders": {item["status"]: item["count"] for item in po_counts},
+        }

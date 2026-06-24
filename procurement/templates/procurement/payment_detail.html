@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Payment Requisition Detail{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3">Payment Requisition #{{ requisition.pk }}</h1>
+    <p class="text-muted">{{ requisition.get_requisition_type_display }} for {{ requisition.amount }} {{ requisition.currency }}</p>
+  </div>
+  <div>
+    <a href="{% url 'payment_requisition_list' %}" class="btn btn-outline-secondary">Back</a>
+  </div>
+</div>
+
+<div class="row gx-4 gy-4">
+  <div class="col-lg-8">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Details</h5>
+        <dl class="row">
+          <dt class="col-sm-4">Status</dt>
+          <dd class="col-sm-8">{{ requisition.get_status_display }}</dd>
+
+          <dt class="col-sm-4">Requested By</dt>
+          <dd class="col-sm-8">{{ requisition.requested_by.get_full_name|default:requisition.requested_by.username }}</dd>
+
+          <dt class="col-sm-4">Requested Date</dt>
+          <dd class="col-sm-8">{{ requisition.requested_date|date:"Y-m-d H:i" }}</dd>
+
+          <dt class="col-sm-4">Amount</dt>
+          <dd class="col-sm-8">{{ requisition.amount }} {{ requisition.currency }}</dd>
+
+          <dt class="col-sm-4">Description</dt>
+          <dd class="col-sm-8">{{ requisition.description|default:"—" }}</dd>
+
+          <dt class="col-sm-4">TRF</dt>
+          <dd class="col-sm-8">{{ requisition.trf }}{% if requisition.trf %} ({{ requisition.trf }}){% endif %}</dd>
+
+          <dt class="col-sm-4">Project</dt>
+          <dd class="col-sm-8">{{ requisition.project }}</dd>
+
+          <dt class="col-sm-4">Purchase Order</dt>
+          <dd class="col-sm-8">{{ requisition.purchase_order }}</dd>
+
+          <dt class="col-sm-4">Proof of Payment</dt>
+          <dd class="col-sm-8">
+            {% if requisition.proof_of_payment %}
+            <a href="{{ requisition.proof_of_payment.url }}" target="_blank">Download</a>
+            {% else %}
+            <span class="text-muted">Not uploaded</span>
+            {% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Budget Summary</h5>
+        <dl class="row mb-0">
+          <dt class="col-sm-4">Total Budget</dt>
+          <dd class="col-sm-8">{{ requisition.total_budget }}</dd>
+          <dt class="col-sm-4">Committed/Used</dt>
+          <dd class="col-sm-8">{{ requisition.current_budget_used }}</dd>
+          <dt class="col-sm-4">Budget Remaining</dt>
+          <dd class="col-sm-8">{{ requisition.current_budget_remaining }}</dd>
+          <dt class="col-sm-4">Remaining After Request</dt>
+          <dd class="col-sm-8">{{ requisition.budget_remaining_after }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Actions</h5>
+        {% if can_submit %}
+        <form method="post" class="d-grid mb-2">
+          {% csrf_token %}
+          <button type="submit" name="submit" class="btn btn-primary">Submit for Approval</button>
+        </form>
+        {% endif %}
+        {% if can_approve_l2 %}
+        <form method="post" class="d-grid mb-2">
+          {% csrf_token %}
+          <button type="submit" name="approve_l2" class="btn btn-info">Approve L2</button>
+        </form>
+        {% endif %}
+        {% if can_approve_l3 %}
+        <form method="post" class="d-grid mb-2">
+          {% csrf_token %}
+          <button type="submit" name="approve_l3" class="btn btn-primary">Approve L3</button>
+        </form>
+        {% endif %}
+        {% if can_reject %}
+        <a href="{% url 'payment_requisition_reject' requisition.pk %}" class="btn btn-danger d-grid mb-2">Reject</a>
+        {% endif %}
+        {% if can_pay %}
+        <a href="{% url 'payment_requisition_pay' requisition.pk %}" class="btn btn-success d-grid">Mark as Paid</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Approval History</h5>
+        {% if requisition.approvals.exists %}
+        <ul class="list-group list-group-flush">
+          {% for approval in requisition.approvals.all %}
+          <li class="list-group-item">
+            <strong>{{ approval.level }}</strong><br>
+            {{ approval.approver.get_full_name|default:approval.approver.username }}<br>
+            {{ approval.status }}{% if approval.comment %}: {{ approval.comment }}{% endif %}
+            <div class="text-muted small">{{ approval.updated_at|date:"Y-m-d H:i" }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0">No approvals recorded yet.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Audit Trail</h5>
+        {% if requisition.audit_events.exists %}
+        <ul class="list-group list-group-flush">
+          {% for event in requisition.audit_events.all %}
+          <li class="list-group-item">
+            <strong>{{ event.event_type }}</strong><br>
+            {{ event.performed_by.get_full_name|default:event.performed_by.username }}
+            <div class="text-muted small">{{ event.timestamp|date:"Y-m-d H:i" }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0">No audit events recorded.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

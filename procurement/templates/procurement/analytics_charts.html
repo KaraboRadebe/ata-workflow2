@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ chart_title }}{% endblock %}
+{% block content %}
+<div class="row mb-4">
+  <div class="col-12 d-flex justify-content-between align-items-center">
+    <div>
+      <h1 class="h3">{{ chart_title }}</h1>
+      <p class="text-muted">Analytics visualization for {{ chart_title|lower }}.</p>
+    </div>
+    <div>
+      <a href="{% url 'reports_overview' %}" class="btn btn-outline-secondary">Back to Dashboard</a>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <canvas id="analyticsChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if summary %}
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Summary</h5>
+        <ul class="list-group list-group-flush">
+          {% for label, value in summary.items %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            {{ label }}
+            <span class="badge bg-secondary rounded-pill">{{ value }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const labels = {{ chart_labels|safe }};
+const values = {{ chart_values|safe }};
+const ctx = document.getElementById('analyticsChart');
+if (ctx) {
+  new Chart(ctx, {
+    type: '{{ chart_type|default:'bar' }}',
+    data: {
+      labels,
+      datasets: [{
+        label: '{{ chart_title }}',
+        data: values,
+        backgroundColor: 'rgba(75, 192, 192, 0.4)',
+        borderColor: 'rgba(75, 192, 192, 1)',
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+        }
+      }
+    }
+  });
+}
+</script>
+{% endblock %}

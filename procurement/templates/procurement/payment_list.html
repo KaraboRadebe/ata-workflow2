@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Payment Requisitions{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3">Payment Requisitions</h1>
+    <p class="text-muted">Review pending requests or create a new requisition.</p>
+  </div>
+  <div>
+    <a href="{% url 'payment_requisition_create' %}" class="btn btn-primary">Create Payment Requisition</a>
+    {% if is_l2 %}
+    <a href="{% url 'payment_requisition_l2_queue' %}" class="btn btn-outline-secondary ms-2">L2 Queue</a>
+    {% endif %}
+    {% if is_l3 %}
+    <a href="{% url 'payment_requisition_l3_queue' %}" class="btn btn-outline-secondary ms-2">L3 Queue</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        <th>Requisition</th>
+        <th>Type</th>
+        <th>Amount</th>
+        <th>Status</th>
+        <th>Requested By</th>
+        <th>Requested Date</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for requisition in requisitions %}
+      <tr>
+        <td>{{ requisition.pk }}</td>
+        <td>{{ requisition.get_requisition_type_display }}</td>
+        <td>{{ requisition.amount }} {{ requisition.currency }}</td>
+        <td>
+          <span class="badge 
+            {% if requisition.status == 'DRAFT' %}bg-secondary
+            {% elif requisition.status == 'SUBMITTED' %}bg-warning text-dark
+            {% elif requisition.status == 'L2_APPROVED' %}bg-info text-dark
+            {% elif requisition.status == 'L3_APPROVED' %}bg-primary
+            {% elif requisition.status == 'PAID' %}bg-success
+            {% elif requisition.status == 'REJECTED' %}bg-danger
+            {% else %}bg-secondary{% endif %}">
+            {{ requisition.get_status_display }}
+          </span>
+        </td>
+        <td>{{ requisition.requested_by.get_full_name|default:requisition.requested_by.username }}</td>
+        <td>{{ requisition.requested_date|date:"Y-m-d" }}</td>
+        <td><a href="{% url 'payment_requisition_detail' requisition.pk %}" class="btn btn-sm btn-outline-primary">View</a></td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7" class="text-center text-muted py-4">No payment requisitions found.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

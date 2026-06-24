@@ -18,11 +18,12 @@
     </div>
 
     <h5>Line Items</h5>
-    <table class="table table-sm mb-4">
-      <thead class="table-light">
-        <tr><th>Description</th><th>Qty</th><th>Amount</th><th>Expected Delivery</th><th>Supplier ETA</th><th>Actual Delivery</th><th>Actions</th></tr>
-      </thead>
-      <tbody>
+    <div class="table-responsive mb-4">
+      <table class="table table-sm mb-0">
+        <thead class="table-light">
+          <tr><th>Description</th><th>Qty</th><th>Amount</th><th>Expected Delivery</th><th>Supplier ETA</th><th>Actual Delivery</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
         {% for li in line_items %}
         <tr {% if li.is_delayed %}class="table-warning"{% endif %}>
           <td>{{ li.costing_sheet_line_item.description }}</td>
@@ -53,6 +54,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
 
     {% if all_delivered and po.status == "Issued" %}
     <div class="alert alert-info">All items delivered. Consider marking this PO as Fulfilled.</div>
@@ -154,7 +156,15 @@
         {% if po.pod %}
         <p class="mb-1"><strong>Signed by:</strong> {{ po.pod.signed_by }}</p>
         <p class="mb-2"><strong>Date:</strong> {{ po.pod.signed_at|date:"d M Y" }}</p>
+        {% if po.pod.signature_data %}
+        <div class="mb-3">
+          <strong>Delivery Signature</strong>
+          <img src="{{ po.pod.signature_data }}" alt="Delivery signature" class="img-fluid border rounded mt-2" />
+        </div>
+        {% endif %}
+        {% if po.pod.pod_file %}
         <a href="{{ po.pod.pod_file.url }}" target="_blank" class="btn btn-sm btn-outline-success">View POD</a>
+        {% endif %}
         {% else %}
         <p class="text-muted small">No POD uploaded yet.</p>
         {% endif %}
@@ -182,44 +192,150 @@
   </div>
 </div>
 
+{% if is_pdr and po.status == "Issued" %}
+<div class="card mt-4 signature-card">
+  <div class="card-header fw-semibold">Delivery Signature</div>
+  <div class="card-body">
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label mb-1">Signer name</label>
+        <input id="podSignedBy" type="text" class="form-control form-control-sm" placeholder="Delivery signer" value="{{ user.get_full_name|default:user.username }}">
+      </div>
+      <div class="col-md-6 text-end">
+        <button id="clearSignatureBtn" type="button" class="btn btn-sm btn-outline-secondary">Clear signature</button>
+      </div>
+    </div>
+    <div class="signature-instructions mb-2">Draw the delivery signature below. This is required before any item can be marked Delivered.</div>
+    <canvas id="podSignaturePad" width="600" height="180"></canvas>
+    <input type="hidden" id="podSignatureData" value="">
+  </div>
+</div>
+{% endif %}
+
 {# Stock movement status per line item #}
 {% if is_pdr and po.status == "Issued" %}
 <div class="card mt-4">
   <div class="card-header fw-semibold">Stock Movement</div>
   <div class="card-body">
-    <table class="table table-sm">
-      <thead class="table-light">
-        <tr><th>Item</th><th>Current Stage</th><th>Update Stage</th></tr>
-      </thead>
-      <tbody>
-        {% for li in line_items %}
-        <tr>
-          <td>{{ li.costing_sheet_line_item.description }}</td>
-          <td>
-            {% if li.stock_movement %}
-              <span class="badge bg-info text-dark">{{ li.stock_movement.stage }}</span>
-            {% else %}
-              <span class="badge bg-secondary">Ordered</span>
-            {% endif %}
-          </td>
-          <td>
-            <form method="post" action="{% url 'stock_update' po.pk li.pk %}" class="d-inline">
-              {% csrf_token %}
-              <select name="stage" class="form-select form-select-sm d-inline" style="width:140px">
-                <option value="Ordered">Ordered</option>
-                <option value="Received">Received</option>
-                <option value="Vetted">Vetted</option>
-                <option value="Packed">Packed</option>
-                <option value="Delivered">Delivered</option>
-              </select>
-              <button type="submit" class="btn btn-sm btn-outline-primary ms-1">Update</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead class="table-light">
+          <tr><th>Item</th><th>Current Stage</th><th>Update Stage</th></tr>
+        </thead>
+        <tbody>
+          {% for li in line_items %}
+          <tr>
+            <td>{{ li.costing_sheet_line_item.description }}</td>
+            <td>
+              {% if li.stock_movement %}
+                <span class="badge bg-info text-dark">{{ li.stock_movement.stage }}</span>
+              {% else %}
+                <span class="badge bg-secondary">Ordered</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" action="{% url 'stock_update' po.pk li.pk %}" class="stock-update-form d-inline" data-disable-on-submit>
+                {% csrf_token %}
+                <input type="hidden" name="signed_by" class="signature-signer">
+                <input type="hidden" name="signature_data" class="signature-data">
+                <select name="stage" class="form-select form-select-sm d-inline" style="width:140px">
+                  <option value="Ordered">Ordered</option>
+                  <option value="Received">Received</option>
+                  <option value="Vetted">Vetted</option>
+                  <option value="Packed">Packed</option>
+                  <option value="Delivered">Delivered</option>
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-primary ms-1">Update</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  const canvas = document.getElementById('podSignaturePad');
+  if (!canvas) {
+    return;
+  }
+
+  const signerInput = document.getElementById('podSignedBy');
+    const clearButton = document.getElementById('clearSignatureBtn');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+    let signatureProvided = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    function getPointerPosition(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      };
+    }
+
+    function draw(event) {
+      if (!drawing) return;
+      const { x, y } = getPointerPosition(event);
+      ctx.strokeStyle = '#1f3d91';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      lastX = x;
+      lastY = y;
+    }
+
+    canvas.addEventListener('pointerdown', function(event) {
+      drawing = true;
+      signatureProvided = true;
+      const pos = getPointerPosition(event);
+      lastX = pos.x;
+      lastY = pos.y;
+      canvas.setPointerCapture(event.pointerId);
+    });
+
+    canvas.addEventListener('pointermove', draw);
+    canvas.addEventListener('pointerup', function() { drawing = false; });
+    canvas.addEventListener('pointerleave', function() { drawing = false; });
+
+    clearButton.addEventListener('click', function() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      signatureProvided = false;
+    });
+
+    function syncSignatureToForms(form) {
+      const signedByValue = signerInput ? signerInput.value.trim() : '';
+      const signerField = form.querySelector('input[name="signed_by"]');
+      const signatureField = form.querySelector('input[name="signature_data"]');
+      if (signerField) {
+        signerField.value = signedByValue;
+      }
+      if (signatureField) {
+        signatureField.value = signatureProvided ? canvas.toDataURL('image/png') : '';
+  }
+
+  document.querySelectorAll('.stock-update-form').forEach(function(form) {
+    form.addEventListener('submit', function(event) {
+      syncSignatureToForms(form);
+      const stage = form.querySelector('select[name="stage"]').value;
+      const signatureValue = form.querySelector('input[name="signature_data"]').value;
+      if (stage === 'Delivered' && !signatureValue) {
+        event.preventDefault();
+        alert('Please add a delivery signature before marking an item Delivered.');
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}

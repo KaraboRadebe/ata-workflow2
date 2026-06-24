@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
@@ -147,6 +148,17 @@ class PurchaseOrder(models.Model):
     class Meta:
         ordering = ["-created_at"]
 
+    @property
+    def total_amount(self):
+        total = Decimal('0')
+        for line_item in self.line_items.select_related('costing_sheet_line_item').all():
+            costing_item = line_item.costing_sheet_line_item
+            amount = costing_item.selected_amount
+            if amount is not None:
+                quantity = costing_item.quantity or 1
+                total += amount * quantity
+        return total
+
     def __str__(self):
         return f"{self.po_number} [{self.status}]"
 
@@ -215,6 +227,68 @@ class ProcurementAuditEvent(models.Model):
 
     def __str__(self):
         return f"{self.action} on {self.costing_sheet} at {self.timestamp}"
+
+
+class Certification(models.Model):
+    class CertificationType(models.TextChoices):
+        BLS = "BLS", "BLS"
+        ACLS = "ACLS", "ACLS"
+        PALS = "PALS", "PALS"
+        ITLS = "ITLS", "ITLS"
+
+    contact = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="certifications",
+    )
+    certification_type = models.CharField(
+        max_length=10,
+        choices=CertificationType.choices,
+    )
+    issue_date = models.DateField()
+    expiry_date = models.DateField(null=True, blank=True)
+    reminder_sent = models.BooleanField(default=False)
+    reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["expiry_date"]
+
+    def __str__(self):
+        return f"{self.contact.get_full_name() or self.contact.username} - {self.certification_type}"
+
+    @classmethod
+    def renewal_years_for(cls, certification_type):
+        if certification_type == cls.CertificationType.ITLS:
+            return 3
+        return 2
+
+    @staticmethod
+    def _calculate_expiry(issue_date, years):
+        try:
+            return issue_date.replace(year=issue_date.year + years)
+        except ValueError:
+            return issue_date.replace(month=2, day=28, year=issue_date.year + years)
+
+    def save(self, *args, **kwargs):
+        if self.issue_date and not self.expiry_date:
+            self.expiry_date = self._calculate_expiry(
+                self.issue_date,
+                self.renewal_years_for(self.certification_type),
+            )
+        super().save(*args, **kwargs)
+
+    @property
+    def days_until_expiry(self):
+        if not self.expiry_date:
+            return None
+        return (self.expiry_date - date.today()).days
+
+    @property
+    def is_expiring_soon(self):
+        remaining = self.days_until_expiry
+        return remaining is not None and remaining <= 90
 
 # Phase 4 models imported here so Django discovers them
 from .stock_models import StockMovement, DeliveryDocument, ProofOfDelivery  # noqa: F401, E402
