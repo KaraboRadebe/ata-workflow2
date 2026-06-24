@@ -15,20 +15,16 @@ if not SECRET_KEY:
     SECRET_KEY = 'django-insecure-ata-workflow-2026-railway-fix-please-change-me'
 
 # ALLOWED HOSTS - Read from environment or use defaults
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'ata-workflow-production.up.railway.app,*.railway.app,localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,.onrender.com').split(',')
 
-# CSRF settings for Railway
-CSRF_TRUSTED_ORIGINS = [
-    'https://*.railway.app',
-    'https://*.up.railway.app',
-    'https://ata-workflow-production.up.railway.app',
-]
+# CSRF settings for Render and local development
+CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://*.onrender.com').split(',')
 
-# Ensure CSRF cookie works on Railway
-CSRF_COOKIE_SECURE = True
-CSRF_COOKIE_HTTPONLY = False
-CSRF_USE_SESSIONS = False
-CSRF_COOKIE_SAMESITE = 'Lax'
+# Ensure CSRF cookie works on Render and production
+CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'True') == 'True'
+CSRF_COOKIE_HTTPONLY = os.environ.get('CSRF_COOKIE_HTTPONLY', 'False') == 'True'
+CSRF_USE_SESSIONS = os.environ.get('CSRF_USE_SESSIONS', 'False') == 'True'
+CSRF_COOKIE_SAMESITE = os.environ.get('CSRF_COOKIE_SAMESITE', 'Lax')
 
 # Application definition
 INSTALLED_APPS = [
